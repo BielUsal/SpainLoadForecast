@@ -1,0 +1,67 @@
+# Data sources and ranges. Decisions are logged in docs/DESIGN.md section 16.
+
+period:
+  start: "2021-01-01"      # local dates, Europe/Madrid
+  end: "2026-10-31"
+timezone: "Europe/Madrid"
+
+esios:
+  base_url: "https://api.esios.ree.es"
+  geo_id_peninsula: 8741
+  # Verified against the live API on 2026-11-12 (docs/DESIGN.md section 3.1).
+  indicators:
+    demand_real: 1293          # target; 5- or 10-minute MW, averaged to hourly in the pipeline
+    demand_forecast_d1: 1775   # REE benchmark; published about 10:50 local on day d for d+1
+    demand_scheduled: 545      # scheduled demand, old definition (used only for self-consumption)
+    demand_scheduled_total: 1941  # scheduled demand plus estimated self-consumption; starts 2025-12-11
+  # On this local date REE started adding estimated self-consumption (mostly rooftop solar) to
+  # indicator 1293, and from the next day to its forecast 1775. Earlier history was not revised.
+  # The pipeline subtracts the estimate (1941 - 545) to keep the old definition (DESIGN section 10).
+  definition_change: "2025-12-11"
+  # Checked and rejected as benchmarks; kept so the spike can re-check them.
+  rejected_indicators:
+    demand_forecast: 544       # revised intraday
+    demand_forecast_daily: 460 # revised intraday
+
+weather:
+  archive_url: "https://archive-api.open-meteo.com/v1/archive"
+  historical_forecast_url: "https://historical-forecast-api.open-meteo.com/v1/forecast"
+  previous_runs_url: "https://previous-runs-api.open-meteo.com/v1/forecast"
+  variables: [temperature_2m, relative_humidity_2m, shortwave_radiation, cloud_cover, wind_speed_10m]
+  # Provisional city list. Populations are approximate province figures (millions) and must be
+  # replaced with INE values before they are used as weights (open decision, DESIGN 16.2).
+  cities:
+    - {name: Madrid,     lat: 40.4168, lon: -3.7038, population: 7.0}
+    - {name: Barcelona,  lat: 41.3874, lon:  2.1686, population: 5.9}
+    - {name: Valencia,   lat: 39.4699, lon: -0.3763, population: 2.7}
+    - {name: Sevilla,    lat: 37.3891, lon: -5.9845, population: 2.0}
+    - {name: Malaga,     lat: 36.7213, lon: -4.4214, population: 1.8}
+    - {name: Murcia,     lat: 37.9922, lon: -1.1307, population: 1.6}
+    - {name: Bilbao,     lat: 43.2630, lon: -2.9350, population: 1.2}
+    - {name: A Coruna,   lat: 43.3623, lon: -8.4115, population: 1.1}
+    - {name: Zaragoza,   lat: 41.6488, lon: -0.8891, population: 1.0}
+    - {name: Valladolid, lat: 41.6523, lon: -4.7245, population: 0.5}
+
+calendar:
+  # Peninsular autonomous communities (codes of the `holidays` package) with approximate
+  # populations in millions (INE 2024, rounded). Used only as weights for holiday intensity.
+  region_population:
+    AN: 8.6   # Andalucia
+    CT: 8.0   # Cataluna
+    MD: 7.0   # Madrid
+    VC: 5.3   # Comunitat Valenciana
+    GA: 2.7   # Galicia
+    CL: 2.4   # Castilla y Leon
+    PV: 2.2   # Pais Vasco
+    CM: 2.1   # Castilla-La Mancha
+    MC: 1.6   # Murcia
+    AR: 1.35  # Aragon
+    EX: 1.05  # Extremadura
+    AS: 1.0   # Asturias
+    NC: 0.68  # Navarra
+    CB: 0.59  # Cantabria
+    RI: 0.32  # La Rioja
+
+quality:
+  demand_range_mw: [15000, 45000]   # plausible range; values outside are reported, not removed
+  spike_threshold: 8.0              # robust z-score on hourly changes

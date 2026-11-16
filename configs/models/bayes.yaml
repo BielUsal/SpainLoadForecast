@@ -1,0 +1,18 @@
+# Bayesian structural model (NumPyro). See DESIGN section 7.3.
+
+train_start: "2021-01-01"
+refit_every_days: 28
+n_draws: 300                 # posterior draws used for each forecast
+draws_per_sample: 4          # predictive samples per posterior draw
+svi:
+  map_steps: 4000            # first fit; later refits start from the previous one
+  refit_map_steps: 1500
+  structure_steps: 2000      # low-rank Gaussian approximation around the mode
+  error_steps: 2000
+nuts:
+  train_end: "2024-10-30"    # last day used by the single NUTS fit (validation starts 2024-11-01)
+  chains: 4
+  warmup: 500
+  samples: 500
+  max_tree_depth: 8
+  dense_mass: true         # posterior correlations (trend knots, profiles) made every draw hit the depth limit

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "loadforecast"
+version = "0.1.0"
+description = "Day-ahead probabilistic forecasting of Spanish electricity demand"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Gabriel D'Andrade Furlanetto" }]
+# Core dependencies only. Model libraries are added as optional groups at their milestones
+# (LightGBM at M3, NumPyro at M4, PyTorch at M6) to keep the environment small.
+dependencies = [
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "holidays>=0.60",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "pytest>=8"]
+gbm = ["lightgbm>=4"]
+bayes = ["numpyro>=0.15", "arviz>=0.18"]
+notebook = ["matplotlib>=3.9", "ipykernel>=6", "nbconvert>=7", "nbformat>=5"]
+app = ["streamlit>=1.40", "plotly>=5.24"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/loadforecast"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "scripts"]
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

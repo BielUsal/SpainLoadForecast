@@ -2,7 +2,8 @@
 
 **Forecasting Spain's hourly electricity demand one day ahead, with honest uncertainty.**
 
-> 🚧 Work in progress. Results, figures and a live dashboard link will appear here as they're ready.
+> 🚧 Work in progress. Preliminary results are [below](#results-at-a-glance) and in the
+> [report](reports/report.md); final test-year results and a live dashboard link will follow.
 
 ---
 
@@ -63,7 +64,26 @@ trust.
 
 ## Results at a glance
 
-*Coming soon.*
+Preliminary, on the **validation year** (1 November 2024 to 31 October 2025), which was also used to
+choose and tune the models, so these scores are somewhat flattering. The final test year has not been
+scored yet. Lower is better, except coverage, which should be 90%.
+
+| Forecast | Mean error (MW) | Mean error (%) | Probabilistic score, CRPS (MW) | Coverage of the 90% range (%) |
+|---|---:|---:|---:|---:|
+| Same hour last week | 1,438 | 5.30 | 903 | 85.1 |
+| Typical profile | 1,221 | 4.47 | 696 | 85.0 |
+| Bayesian model | 586 | 2.15 | 359 | 84.7 |
+| LightGBM | 538 | 1.99 | 315 | 88.4 |
+| **REE** | **455** | **1.67** | **271** | 88.0 |
+
+- Both models cut the error of the best simple rule by more than half.
+- REE stays ahead, by 83 MW on average against LightGBM. The gap is statistically real but small, and the
+  open model wins on 4 days out of 10, most clearly on unusually sunny days.
+- The uncertainty ranges are close to honest: LightGBM's "90% range" contained the real value 88% of the
+  time.
+
+REE publishes no uncertainty range; the one scored here is built from its own past errors. The full story,
+with the failure analysis, is in [`reports/report.md`](reports/report.md).
 
 ---
 

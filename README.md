@@ -2,8 +2,8 @@
 
 **Forecasting Spain's hourly electricity demand one day ahead, with honest uncertainty.**
 
-> Results are [below](#results-at-a-glance) and in the [report](reports/report.md). A live dashboard link
-> will follow.
+> **[Live dashboard](https://spainloadforecast-gabrieldandrade.streamlit.app/)** · Results [below](#results-at-a-glance) and in the
+> [report](reports/report.md).
 
 ---
 
@@ -57,7 +57,7 @@ trust.
 
 ## What you'll be able to see
 
-- An **interactive dashboard**: pick any day and compare what actually happened with each model's forecast
+- An **[interactive dashboard](https://spainloadforecast-gabrieldandrade.streamlit.app/)**: pick any day and compare what actually happened with each model's forecast
   and its uncertainty range, alongside REE's own forecast.
 - A short **report** explaining the results in plain language.
 - All the **code**, so every number can be reproduced.

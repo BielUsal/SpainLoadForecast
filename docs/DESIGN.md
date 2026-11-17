@@ -7,9 +7,8 @@
 > rather than letting the document drift from the code.
 >
 > **Status:** M0 to M4 done; M6 (RNN) done, scored on the test year on 2026-11-17. **The test year was scored once on 2026-11-16** (§8.6); nothing may be
-> tuned against it from now on. M5 is written on those numbers: `reports/report.md`, the Streamlit
-> app in `app/` and the README results table. Left for M5: commit and push, deploy the app, link it
-> in the README. Open points left by M4 are listed at the end of §7.3.
+> tuned against it from now on. M5 is done: `reports/report.md`, the README results table and the
+> Streamlit app in `app/`, deployed at https://spainloadforecast-gabrieldandrade.streamlit.app/ (2026-11-17) from `main`. Open points left by M4 are listed at the end of §7.3.
 > Read §10 on the December 2025 definition change before working with the data.
 
 ---

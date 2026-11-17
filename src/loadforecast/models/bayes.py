@@ -42,8 +42,10 @@ def load_model_config() -> dict:
     return load_config("models/bayes")
 
 
-def nuts_path(dataset_hash: str):
-    return MODELS_DIR / f"bayes_nuts_{dataset_hash}.pkl"
+def nuts_path(dataset_hash: str, split: str = "validation"):
+    """Saved NUTS fit used to forecast ``split``: one fit per split, trained up to its start."""
+    suffix = "" if split == "validation" else f"_{split}"
+    return MODELS_DIR / f"bayes_nuts_{dataset_hash}{suffix}.pkl"
 
 
 def training_frame(history: pd.DataFrame, start: str, end=None) -> pd.DataFrame:
@@ -148,6 +150,7 @@ def paired_draws(fit: dict, n: int, seed: int = 0) -> tuple[dict, dict]:
 class BayesForecaster:
     needs_gap = True
     native_quantiles = True
+    recalibrate = True  # ranges were about 20% too narrow as sampled (DESIGN 7.3)
     _fits: dict[str, dict] = {}  # shared between weather variants, keyed by training cutoff
 
     def __init__(
@@ -230,15 +233,18 @@ class BayesForecaster:
 
 
 def bayes_models(
-    taus: list[float], dataset_hash: str, variants: tuple[str, ...] = ("svi", "nuts")
+    taus: list[float],
+    dataset_hash: str,
+    variants: tuple[str, ...] = ("svi", "nuts"),
+    split: str = "validation",
 ) -> list[tuple[object, int]]:
     cfg = load_model_config()
     models = []
     if "svi" in variants:
         for weather in ("oracle", "forecast"):
             models.append((BayesForecaster(weather, taus, cfg, "svi"), cfg["refit_every_days"]))
-    if "nuts" in variants and nuts_path(dataset_hash).exists():
-        with open(nuts_path(dataset_hash), "rb") as fh:
+    if "nuts" in variants and nuts_path(dataset_hash, split).exists():
+        with open(nuts_path(dataset_hash, split), "rb") as fh:
             fixed = pickle.load(fh)
         for weather in ("oracle", "forecast"):
             models.append((BayesForecaster(weather, taus, cfg, "nuts", fixed), 10**6))
@@ -246,9 +252,10 @@ def bayes_models(
 
 
 def main() -> None:
-    """Run the single NUTS fit on the training period and save it."""
+    """Run the NUTS fit that forecasts one split, on the data before it, and save it."""
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--chains", type=int, default=None)
+    parser.add_argument("--split", default="validation", choices=["validation", "test"])
     args = parser.parse_args()
 
     import numpyro
@@ -264,14 +271,18 @@ def main() -> None:
     raw = pd.read_parquet(PROCESSED_DIR / "hourly.parquet")
     meta = json.loads((PROCESSED_DIR / "hourly.meta.json").read_text())
     table = prepare_table(raw)
-    frame = training_frame(table, cfg["train_start"], cfg["nuts"]["train_end"])
+    train_end = cfg["nuts"]["train_end"][args.split]
+    path = nuts_path(meta["hash"], args.split)
+    if path.exists():
+        parser.error(f"{path} exists: move it away first, a fit takes about an hour")
+    frame = training_frame(table, cfg["train_start"], train_end)
     grid = bm.build_grid(frame)
     print(f"NUTS on {grid.n_days} days, {cfg['nuts']['chains']} chains", flush=True)
     fit = two_stage_fit(grid, cfg, "nuts")
-    fit |= {"train_start": cfg["train_start"], "train_end": cfg["nuts"]["train_end"]}
+    fit |= {"train_start": cfg["train_start"], "train_end": train_end, "split": args.split}
     fit |= {"dataset_hash": meta["hash"], "config": cfg["nuts"]}
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(nuts_path(meta["hash"]), "wb") as fh:
+    with open(path, "wb") as fh:
         pickle.dump(fit, fh)
     for stage in ("structure", "errors"):
         extra = fit["extra_fields"][stage]
@@ -279,7 +290,7 @@ def main() -> None:
             f"{stage}: divergences {int(extra['diverging'].sum())}, "
             f"mean leapfrog steps {extra['num_steps'].mean():.0f}"
         )
-    print(f"saved {nuts_path(meta['hash'])} after {fit['seconds'] / 60:.1f} min")
+    print(f"saved {path} after {fit['seconds'] / 60:.1f} min")
 
 
 if __name__ == "__main__":

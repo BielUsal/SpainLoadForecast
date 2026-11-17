@@ -29,7 +29,7 @@ from loadforecast.models.baselines import (
     SeasonalNaiveDaily,
     SeasonalNaiveWeekly,
 )
-from loadforecast.models.quantiles import add_residual_quantiles
+from loadforecast.models.quantiles import add_residual_quantiles, recalibrate_quantiles
 
 PREDICTIONS_DIR = DATA_DIR / "predictions"
 RESULTS_DIR = ROOT / "reports" / "results"
@@ -49,10 +49,12 @@ def baseline_models(table: pd.DataFrame) -> list[tuple[object, int]]:
     ]
 
 
-MODEL_GROUPS = ["baselines", "lgbm", "bayes"]
+MODEL_GROUPS = ["baselines", "lgbm", "bayes", "rnn"]
 
 
-def build_models(groups: list[str], table: pd.DataFrame, dataset_hash: str, cfg: dict):
+def build_models(
+    groups: list[str], table: pd.DataFrame, dataset_hash: str, cfg: dict, split: str = "validation"
+):
     models = []
     if "baselines" in groups:
         models += baseline_models(table)
@@ -63,11 +65,15 @@ def build_models(groups: list[str], table: pd.DataFrame, dataset_hash: str, cfg:
     if "bayes" in groups:
         from loadforecast.models.bayes import bayes_models
 
-        models += bayes_models(cfg["quantiles"], dataset_hash)
+        models += bayes_models(cfg["quantiles"], dataset_hash, split=split)
+    if "rnn" in groups:
+        from loadforecast.models.rnn import rnn_models
+
+        models += rnn_models(cfg["quantiles"])
     return models
 
 
-def run_models(split: str, groups: list[str]) -> None:
+def run_models(split: str, groups: list[str], only: str | None = None) -> None:
     """Backtest the chosen model groups and save their predictions for the split."""
     data_cfg, cfg = load_config("data"), load_config("backtest")
     raw = pd.read_parquet(PROCESSED_DIR / "hourly.parquet")
@@ -80,9 +86,13 @@ def run_models(split: str, groups: list[str]) -> None:
 
     out_dir = PREDICTIONS_DIR / split
     out_dir.mkdir(parents=True, exist_ok=True)
-    for model, refit_every in build_models(groups, table, meta["hash"], cfg):
+    for model, refit_every in build_models(groups, table, meta["hash"], cfg, split):
+        if only and only not in model.name:
+            continue
         native = getattr(model, "native_quantiles", False)
-        model_start = pd.Timestamp(start) if native else warm_start  # no error history needed
+        recalibrate = getattr(model, "recalibrate", False)
+        needs_history = recalibrate or not native  # past errors from before the split
+        model_start = warm_start if needs_history else pd.Timestamp(start)
         if getattr(model, "min_start", None):
             model_start = max(model_start, pd.Timestamp(model.min_start))
         print(f"{model.name}: backtest {model_start.date()} -> {end}", flush=True)
@@ -98,6 +108,8 @@ def run_models(split: str, groups: list[str]) -> None:
         )
         if not native:
             pred = add_residual_quantiles(pred, table["demand_mw"], taus)
+        elif recalibrate:
+            pred = recalibrate_quantiles(pred, table["demand_mw"], taus)
         pred = pred[pred["local_date"] >= start]
         pred.attrs = {}
         pred.to_parquet(out_dir / f"{model.name}.parquet")
@@ -181,6 +193,7 @@ def main() -> None:
         default=",".join(MODEL_GROUPS),
         help=f"comma-separated groups ({', '.join(MODEL_GROUPS)}); 'none' only re-scores",
     )
+    parser.add_argument("--only", default=None, help="keep models whose name contains this text")
     parser.add_argument("--final", action="store_true", help="required to score the test split")
     args = parser.parse_args()
     if args.split == "test" and not args.final:
@@ -189,7 +202,7 @@ def main() -> None:
     unknown = set(groups) - set(MODEL_GROUPS)
     if unknown:
         parser.error(f"unknown model groups: {sorted(unknown)}")
-    run_models(args.split, groups)
+    run_models(args.split, groups, args.only)
     results = score_split(args.split)
     pd.set_option("display.width", 220, "display.max_columns", 30)
     print(results.round(3).to_string())

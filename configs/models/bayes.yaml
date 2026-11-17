@@ -10,9 +10,11 @@ svi:
   structure_steps: 2000      # low-rank Gaussian approximation around the mode
   error_steps: 2000
 nuts:
-  train_end: "2024-10-30"    # last day used by the single NUTS fit (validation starts 2024-11-01)
+  train_end:                 # last day used by the NUTS fit of each split (two days before it starts)
+    validation: "2024-10-30"
+    test: "2025-10-30"
   chains: 4
   warmup: 500
   samples: 500
   max_tree_depth: 8
-  dense_mass: true         # posterior correlations (trend knots, profiles) made every draw hit the depth limit
+  dense_mass: true           # used by the test-year fit only; did not cure the depth limit and doubled the run time (DESIGN 7.3)

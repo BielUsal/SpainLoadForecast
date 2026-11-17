@@ -6,10 +6,10 @@
 > [`README.md`](../README.md). Keep this file current as decisions change, and record each decision in §16
 > rather than letting the document drift from the code.
 >
-> **Status:** M0 to M4 done and scored on the validation year only (2026-11-13). M5 is drafted
-> (2026-11-16): `reports/report.md`, the Streamlit app in `app/` and the README results table, all on
-> validation numbers. Left for M5: commit and push, deploy the app, link it in the README, and score
-> the test year once. Open points left by M4 are listed at the end of §7.3.
+> **Status:** M0 to M4 done. **The test year was scored once on 2026-11-16** (§8.6); nothing may be
+> tuned against it from now on. M5 is written on those numbers: `reports/report.md`, the Streamlit
+> app in `app/` and the README results table. Left for M5: commit and push, deploy the app, link it
+> in the README. Open points left by M4 are listed at the end of §7.3.
 > Read §10 on the December 2025 definition change before working with the data.
 
 ---
@@ -313,8 +313,8 @@ analysis in `notebooks/02_baselines.ipynb`):
 | `lgbm_oracle` (§7.2, observed weather) | 523 | 1.94 | 308 | 89.1 |
 | `lgbm_forecast` (§7.2, forecast weather) | 538 | 1.99 | 315 | 88.4 |
 | `bayes_nuts_oracle` (§7.3, observed weather) | 580 | 2.13 | 353 | 85.4 |
-| `bayes_nuts_forecast` (§7.3, forecast weather) | 586 | 2.15 | 359 | 84.7 |
-| `bayes_svi_forecast` (§7.3, refitted every 28 days) | 587 | 2.15 | 358 | 85.5 |
+| `bayes_nuts_forecast` (§7.3, forecast weather) | 586 | 2.15 | 356 | 88.0 |
+| `bayes_svi_forecast` (§7.3, refitted every 28 days) | 586 | 2.15 | 355 | 88.9 |
 | `ree` (benchmark) | 455 | 1.67 | 271 | 88.0 |
 
 Skill score of model $m$ against baseline $b$ for a loss $L$:
@@ -453,11 +453,11 @@ Two posteriors are backtested: one NUTS fit on the training period, kept fixed (
 4 chains × 500 draws, 65 minutes), and a posterior mode plus low-rank Gaussian approximation
 refitted every 28 days (`bayes_svi_*`; 95 seconds per fit).
 
-- **Validation year:** `bayes_nuts_forecast` MAPE 2.15%, MAE 586 MW, CRPS 359 MW; with observed
-  weather 2.13%, 580 MW, 353 MW. That is 131 MW above REE's daily MAE (95% interval 76 to 184) and
+- **Validation year:** `bayes_nuts_forecast` MAPE 2.15%, MAE 586 MW, CRPS 356 MW; with observed
+  weather 2.13%, 580 MW, 354 MW (CRPS after recalibration, below). That is 131 MW above REE's daily MAE (95% interval 76 to 184) and
   48 MW above LightGBM's (4 to 92, p = 0.03). It beats REE on 36% of days and LightGBM on 46%.
 - **It does not earn its place on accuracy.** It is behind LightGBM in every block of the day and
-  in special periods (Christmas 4.92% against 3.42%, Holy Week 3.04% against 2.19%), so pooled
+  in special periods (Christmas 4.90% against 3.42%, Holy Week 3.04% against 2.19%), so pooled
   holiday effects did not close the gap §7.2 pointed to. It is ahead only on Sundays (1.82% against
   2.04%). Its case is interpretability.
 - **Parameters** (posterior mean, 90% interval): heating below 16.1 °C (15.3–17.0), cooling above
@@ -466,12 +466,44 @@ refitted every 28 days (`bayes_svi_*`; 95 seconds per fit).
   a Wednesday removes 4.6 GW on average. The radiation effect grows by 1.0 GW per kW/m² per year
   (about −2.9 GW on a clear midday at the start of 2025).
 - **The day-ahead correction** takes the structural mean from 2.72% to 2.15% MAPE.
-- **Bands are too narrow:** 47.9 / 75.4 / 84.7% coverage for 50 / 80 / 90%, against LightGBM's
-  88.4% at the same width.
-- **SVI forecasts as well as NUTS** (difference in daily MAE +1 MW, interval −2 to +5), but its
-  posterior standard deviations are a median of 0.34 times the NUTS ones. Use NUTS for parameter
-  intervals.
-- **Sampler:** no divergences; the error stage mixed well. The structure stage hit the tree-depth
+- **Bands are too narrow as sampled:** 47.9 / 75.4 / 84.7% coverage for 50 / 80 / 90%, against
+  LightGBM's 88.4% at the same width.
+- **Recalibration (2026-11-16)** fixes this: 48.4 / 78.2 / 88.0%, CRPS 359 → 356 MW, mean 90%
+  width 2,132 → 2,393 MW. Past errors are standardised by the model's 5–95% width and each
+  quantile becomes point + width × the empirical quantile of those standardised errors over the
+  previous 365 days, pooled over hours (`recalibrate_quantiles`). The model keeps its own
+  hour-by-hour and day-by-day widths; additive error quantiles by hour, as for LightGBM, score the
+  same (CRPS within 0.5 MW on a prototype) but discard them, and pooling over hours covers slightly
+  better than 24 separate sets of multipliers. The model's own quantiles stay in the prediction
+  files as `model_q*`. For the validation year the error history of the NUTS variant comes from
+  its training period (the fit is frozen at 2024-10-30), so it is in-sample for the parameters.
+  The same holds on the test year, whose fit is trained up to 2025-10-30 (below). The SVI
+  variant, refitted as it goes, has an out-of-sample history and recalibrates to almost the same
+  widths, so the effect is small.
+- **SVI forecasts as well as NUTS** (MAE 586 MW for both, CRPS 355 against 356 MW), and the
+  result does not depend on where the backtest starts (587 MW started on 2024-11-01, 586 MW
+  started 400 days earlier). Its posterior standard deviations are a median of 0.34 times the
+  NUTS ones. Use NUTS for parameter intervals.
+- **The weekday profiles must stay non-centred for the mode fit (found 2026-11-16).** A centred
+  parametrisation, written on 2026-11-13 for the planned cleaner NUTS fit and never run with
+  NUTS, moves the posterior mode to a heating threshold of 27 °C with a comfort band of 29 °C and
+  a level that jumps by up to 1.8 GW between refits; the SVI backtest then scores 688 MW. It is
+  now behind `CENTRED_PROFILES = False` in `bayes_numpyro.py`. If the centred form is used for a
+  NUTS refit, start it from a non-centred mode and compare the forecasts before adopting it.
+- **A second NUTS fit for the test year (2026-11-16)**, on 2021-01-01 to 2025-10-30 (1,764 days),
+  saved next to the first as `bayes_nuts_<hash>_test.pkl` (`make train-test`); the evaluation
+  picks the fit of the split it scores. Without it the test year would be forecast one to two
+  years past the training data. It ran with a dense mass matrix (the setting left in
+  `configs/models/bayes.yaml` on 2026-11-13) and took 127 minutes against 65. The dense matrix
+  did not help: 99% of draws still hit the depth limit, there are 22 divergences in 2,000 draws
+  (none before), and the raw `profile_z` terms have $\hat R$ up to 1.32. What the forecast uses
+  is sound: the weekday profiles have $\hat R \le 1.04$ (ESS 79 or more), the temperature
+  parameters $\hat R \le 1.04$ (ESS above 100), and the error stage $\hat R \le 1.01$. The
+  parameters agree with the first fit (heating below 16.1 °C in both, comfort band 4.2 °C,
+  half-life 17.5 against 18.6 hours). On August to October 2025, in-sample for the new fit, it
+  scores MAE 538 MW against 545 MW for the first fit. Not scored on the test year. Good enough
+  to forecast with; parameter intervals in the report stay those of the first fit.
+- **Sampler (first fit):** no divergences; the error stage mixed well. The structure stage hit the tree-depth
   limit (8) on every draw; the raw hierarchical profile terms have $\hat R$ up to 1.11, while the
   weekday profiles and temperature parameters have $\hat R \le 1.03$ and ESS of 150 or more.
 
@@ -481,8 +513,6 @@ refitted every 28 days (`bayes_svi_*`; 95 seconds per fit).
   the weather forecasts are almost unbiased over the year (+0.17 °C, +1 W/m²). Not explained.
 - A cleaner NUTS fit (a centred parametrisation of the weekday profiles, or a higher tree depth)
   before any parameter interval goes into the report. It costs at least another hour of sampling.
-- Recalibrating the bands from the model's own past errors, as for LightGBM, would probably fix
-  the coverage; not tried.
 
 **Future idea: sequential updating (logged 2026-11-13, not planned).** Proposed on epistemic
 grounds, not for accuracy: the posterior should absorb each new hour or day as an update, with
@@ -501,7 +531,7 @@ yesterday's posterior as today's prior, in place of a periodic refit on all the 
   state (replacing the two-stage fit and the hand-built correction) and the solar and daily-shape
   drift are tracked, not extrapolated linearly. This is the random-walk drift first planned above.
 - *Expectation:* with fixed parameters it gives the same posterior as a full refit, and a year of
-  extra data did not change the scores (SVI against frozen NUTS: 1 MW), so little accuracy gain
+  extra data did not change the scores (SVI against frozen NUTS: under 1 MW), so little accuracy gain
   is expected from updating alone. Any gain would come from the drifting states.
 - *First test, if taken up:* a Kalman filter on the linear coefficients with the temperature
   parameters fixed at their NUTS means, backtested on the validation year. About half a day.
@@ -532,6 +562,40 @@ conditioned on, and (c) to check whether it captures anything the others miss.
   Keep the comparison fair, with the same inputs and the same backtest.
 
 Framework: **PyTorch** (preferred) or TensorFlow/Keras. PyTorch has the better ecosystem for flows (§7.5).
+
+**As built (2026-11-16), `src/loadforecast/models/rnn.py`, validation year only.**
+
+- **Network:** one-layer GRU encoder (64 units) over the last 168 hours of demand, observed
+  weather (temperature, radiation) and calendar; a GRU decoder started from its state and run
+  over the rest of the issue day and the target day, fed with calendar, weather and the demand
+  one week earlier; a small head that gives the 7 quantiles per hour. The median is an offset
+  from the demand one week earlier and the other quantiles are cumulated positive steps from it,
+  so they cannot cross. About 30,000 parameters.
+- **Training:** pinball loss; a forecast origin at every hour of the history (not only 10:00)
+  scoring the 40 hours that follow, which gives about 24 times more examples; AdamW, one-cycle
+  learning rate 0.003, 40 epochs, batch 512, dropout 0.1; observed weather. Refitted from scratch
+  every 28 days; the forecast is the mean of 3 seeds. One network trains in about 50 seconds on
+  the GTX 1660, the validation backtest with its error history in 60 minutes.
+- **Choices made on the first half of the validation year** (observed weather, no refit, 2
+  seeds, MAE in MW): 40 epochs 495; 20 epochs 564; 80 epochs 498 with far worse coverage; 32
+  units 578; 128 units 532; two layers 516; dropout 0.3 516; a two-week encoder 525. Refitting
+  every 28 days: 475. Bigger or longer-trained networks overfit: coverage of the 90% range falls
+  from 78% to between 43% and 67%.
+- **Validation year:** `rnn_forecast` MAE 498 MW, MAPE 1.81%, CRPS 278 MW; `rnn_oracle` 459 MW,
+  1.68%, 265 MW. Against LightGBM: −40 MW in daily MAE with forecast weather (−78 to −4,
+  p = 0.03) and −64 MW with observed weather (−100 to −31). Against REE: +43 MW (−10 to +99,
+  p = 0.11) and +4 MW (−45 to +53): not distinguishable from REE on this year. It beats REE on
+  45% of days. The three seeds alone score 502, 510 and 535 MW.
+- **Ranges:** as trained they are far too narrow (34.8 / 61.8 / 74.1% for 50 / 80 / 90%), the
+  same failure as LightGBM's quantile regression. Recalibrated like the Bayesian model
+  (`recalibrate_quantiles`, out-of-sample history thanks to the refits): 49.5 / 79.6 / 89.7%.
+- **Open: a bias of −171 MW** with forecast weather (−90 MW with observed weather), largest in
+  the evening (−480 MW at 21:00) and in January, June and July. The recalibrated median removes
+  it (bias −13 MW) and scores MAE 475 MW (451 MW with observed weather). Using it as the point
+  forecast is a causal correction but changes what `point` means for this model; not adopted yet.
+- **Forecast weather costs 39 MW** (23 to 58), against 15 MW for LightGBM: the network is trained
+  on observed weather only and is more sensitive to the difference.
+- Not scored on the test year.
 
 ### 7.5 Conditional normalizing flow over the 24-hour vector (stretch)
 
@@ -669,6 +733,37 @@ problem (missing information), a **model** problem (wrong structure) or **irredu
 
 ---
 
+### 8.6 Test-year results (scored once, 2026-11-16)
+
+2025-11-01 to 2026-10-31, 364 days (11 June 2026 masked), dataset `fd955f12cde7d5e5`. Full table
+in `reports/results/test.md`. Validation-year values in brackets.
+
+| Model | MAE (MW) | MAPE (%) | CRPS (MW) | 90% coverage (%) | Daily MAE minus REE (MW, 95% interval) |
+|---|---:|---:|---:|---:|---:|
+| `naive_weekly` | 1,393 (1,438) | 4.99 | 878 | 89.3 | +967 |
+| `climatology` | 1,462 (1,221) | 5.07 | 695 | 88.4 | +1,036 |
+| `bayes_nuts_forecast` | 623 (586) | 2.21 | 367 | 89.7 | +197 (153 to 244) |
+| `bayes_svi_forecast` | 612 (586) | 2.17 | 360 | 90.5 | +186 (143 to 234) |
+| `lgbm_forecast` | 553 (538) | 1.96 | 328 | 88.6 | +127 (85 to 174) |
+| `ree` | 426 (455) | 1.53 | 250 | 90.3 | |
+
+- The ranking is the one seen on validation. The open models lost 15 to 37 MW; REE gained 29 MW,
+  so the gap to REE grew from 83 to 127 MW (LightGBM) and from 131 to 197 MW (Bayesian).
+- Calibration held: 88.6 to 90.5% for the 90% range. The Bayesian model as sampled covers 84.4%.
+- LightGBM beats REE on 31% of days (validation: about 40%), the Bayesian model on 26%.
+- Bayesian minus LightGBM: +70 MW (36 to 105). Forecast against observed weather: +18 MW for
+  LightGBM (4 to 32), +9 MW for the Bayesian model (−5 to 24).
+- The SVI variant, refitted every 28 days, is 11 MW better than the frozen NUTS fit (5 to 16), the
+  first sign that refitting through the year helps.
+- Both open models have a negative bias with forecast weather (−107 and −127 MW; −40 and −30 MW
+  with observed weather). `climatology` has −982 MW: the level moved up over the year.
+- Special periods: Christmas 3.30 / 4.51 / 2.29% (LightGBM / Bayesian / REE); Holy Week 1.95 /
+  2.83 / 2.42%; 00:00–05:59 1.58 / 1.74 / 1.15%. Midday on the sunniest tenth of days for their
+  month: 2.46 / 3.52 / 2.55%, against 2.43 / 2.80 / 1.87% on other days.
+- The figures in `reports/figures` and the notebooks are still those of the validation year.
+
+---
+
 ## 9. Information leakage and other traps
 
 1. **Observed vs. forecast weather.** At issue time on day $d$, tomorrow's temperature is **not known**,
@@ -707,8 +802,8 @@ problem (missing information), a **model** problem (wrong structure) or **irredu
 | Mar–Jun 2020 | COVID-19 lockdown; demand collapsed | **Decided:** outside the data period (data starts in 2021), so no handling is needed |
 | 2022 | Energy-price crisis; demand response to high prices | Indicator, or rely on trend term; discuss |
 | 28 Apr 2025 | Iberian blackout | **Decided:** mask the affected days from training and from validation scoring (measurement artefact, not demand); the exact days are set in EDA from the recovery profile |
-| **11 Dec 2025** | **REE changed the definition of published demand** to include estimated self-consumption; history not revised | **Decided (provisional, §16):** subtract REE's own estimate (`1941 − 545`) so the target keeps the pre-change definition. Verified: no jump against scheduled demand (mean gap 21 MW before, 24 MW after), estimate is zero at night and correlates 0.91 with radiation. REE's errors in MW are unchanged by the correction. The forecast for 11 Dec itself was issued under the old definition and is left uncorrected. |
-| 11 Jun 2026 | Demand fell about 7 GW below REE's forecast in the evening (cause not investigated); in the test period | **Open:** mask or keep. Decide before any model is scored on the test period. |
+| **11 Dec 2025** | **REE changed the definition of published demand** to include estimated self-consumption; history not revised | **Decided (§16, confirmed 2026-11-16):** subtract REE's own estimate (`1941 − 545`) so the target keeps the pre-change definition. Verified: no jump against scheduled demand (mean gap 21 MW before, 24 MW after), estimate is zero at night and correlates 0.91 with radiation. REE's errors in MW are unchanged by the correction. The forecast for 11 Dec itself was issued under the old definition and is left uncorrected. |
+| 11 Jun 2026 | Demand fell about 7 GW below REE's forecast in the evening (cause not investigated); in the test period | **Decided 2026-11-16:** masked for now, from training and from test scoring, for every model including REE. Revisit if the cause is investigated. |
 | Ongoing | Growth of rooftop (behind-the-meter) solar lowers measured midday demand; electrification (EVs, heat pumps) | Time-varying daily profile / trend; the Bayesian model can make the midday coefficients drift (e.g. a random walk over years) |
 
 Detecting these in the data (for example with change-point analysis on residuals) and discussing them is
@@ -851,7 +946,7 @@ Each milestone ends with something that runs and a commit.
 | 2026-11-12 | REE benchmark | ESIOS indicator 1775 (D+1 forecast, published about 10:50 on day $d$) | Verified in the spike; 544 and 460 are revised intraday, 545 is scheduled demand (§3.1). |
 | 2026-11-12 | Raw cache format | gzip-compressed JSON, native resolution | ESIOS hourly truncation sums instead of averaging; gzip shrinks responses about 16 times. |
 
-| 2026-11-12 | Target definition | `demand_mw` = published demand minus REE's self-consumption estimate from 2025-12-11 (pre-change definition) | Keeps one definition across training, validation and test without moving the test period (§10). **Provisional:** taken during M1 without discussion; the alternative is to end the test period on 2025-12-10. |
+| 2026-11-12 | Target definition | `demand_mw` = published demand minus REE's self-consumption estimate from 2025-12-11 (pre-change definition) | Keeps one definition across training, validation and test without moving the test period (§10). Taken provisionally during M1; **confirmed 2026-11-16** before the test year was scored. The alternative was to end the test period on 2025-12-10. |
 | 2026-11-12 | Blackout mask | 28–29 April 2025 | 37% and 16% below REE's forecast; 30 April is 3% below, within normal range. |
 | 2026-11-12 | Training weather | Reanalysis for training; forecast weather only at prediction time in validation and test | The forecast archive has a +1 °C bias before 2024 (§3.2). |
 | 2026-11-12 | Trend features | Trailing means by hour over a few weeks plus lagged demand, not a 365-day mean | The level drifts under 1 GW per year but the daily shape changes a lot; also avoids a year of warm-up. |
@@ -867,6 +962,10 @@ Each milestone ends with something that runs and a commit.
 
 | 2026-11-13 | Bayesian error model | Direct day-ahead model of the 24-hour residual vector, fitted in a second stage | A one-step AR is not fitted on the horizon the forecast needs; a joint fit let the correction absorb the level (§7.3). |
 | 2026-11-13 | Bayesian inference | One fixed NUTS fit for parameter intervals; SVI refitted every 28 days as the cheap forecasting variant | The two forecast equally well; SVI's posterior is far too narrow (§7.3). |
+| 2026-11-16 | RNN head and build | Quantile head on the 7 scored quantiles; PyTorch with CUDA (cu126) | The quantile head trains on the scored metric and needs no distribution; its ranges are recalibrated like the Bayesian model's. The disk has 864 GB free, so the CPU-only constraint of 2026-11-12 no longer applies; the environment is 7.6 GB. |
+| 2026-11-16 | 11 June 2026 | Masked for now (training and scoring) | Demand fell about 7 GW below REE's forecast in the evening; cause not investigated. Decided without looking at model errors on that day. The mask changes the dataset hash from `9de7470fd446c749` to `fd955f12cde7d5e5`; the table is otherwise identical, validation scores are unchanged, and the saved NUTS fits were copied to the new hash. |
+| 2026-11-16 | NUTS fit for the test year | Refit on data up to 2025-10-30, kept as a separate file; the validation fit and its scores are unchanged | A fit frozen at 2024-10-30 would forecast the test year one to two years past its training data. |
+| 2026-11-16 | Bayesian quantiles | Recalibrated from the model's own standardised errors over the previous 365 days, pooled over hours | As sampled the 90% range covered 84.7%; recalibrated 88.0% with slightly better CRPS, and the model keeps its own relative widths (§7.3). |
 
 ### 16.2 Data size estimate (2026-11-12)
 
@@ -901,11 +1000,11 @@ and the environment 1.2 GB with JAX, NumPyro and ArviZ.
 ### 16.3 Still open
 
 - [ ] Final city list and weights for the national temperature (§3.2).
-- [ ] Gaussian vs. quantile head for the RNN (decide at M6).
+- [x] RNN head: quantile head, see the decision log.
 - [ ] Licence (MIT suggested).
 - [x] Trend window: resolved in M1, see the decision log.
-- [ ] Confirm the target definition after the December 2025 change (provisional decision above).
-- [ ] Mask 11 June 2026 in the test period or keep it (§10).
+- [x] Target definition after the December 2025 change: confirmed 2026-11-16, see the decision log.
+- [x] 11 June 2026: masked for now (2026-11-16); revisit if the cause is investigated.
 - [ ] Replace the approximate population figures in `configs/data.yaml` with INE values.
 
 ---

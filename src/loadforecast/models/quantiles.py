@@ -49,3 +49,51 @@ def add_residual_quantiles(
     for j, tau in enumerate(taus):
         out[quantile_column(tau)] = frame["point"].to_numpy() + offsets[row, hour, j]
     return out
+
+
+def recalibrate_quantiles(
+    pred: pd.DataFrame,
+    actual: pd.Series,
+    taus: list[float],
+    *,
+    window_days: int = 365,
+    min_days: int = 28,
+) -> pd.DataFrame:
+    """Recalibrate a model's own quantiles from its past standardised errors.
+
+    The model keeps its point forecast and the width it assigns to each hour; only the
+    multipliers change. With ``s`` the width of the model's widest central interval, the
+    past errors are standardised as ``z = (actual - point) / s`` and the new quantile is
+    ``point + s * quantile(z, tau)``, with the quantiles of ``z`` pooled over all hours of the
+    window. So a model whose ranges are 20% too narrow gets them widened by 20% everywhere,
+    and a constant bias is shifted out, but a day the model considers uncertain stays wider
+    than a day it considers easy.
+
+    Causality is as in ``add_residual_quantiles``: for target day D only target days D-2 and
+    earlier are used. Days with fewer than ``min_days`` of history keep the model's quantiles.
+    The model's original quantiles are kept in ``model_q*`` columns.
+    """
+    columns = [quantile_column(t) for t in taus]
+    out = pred.copy()
+    for column in columns:
+        out[f"model_{column}"] = pred[column]
+    scale = (pred[columns[-1]] - pred[columns[0]]).to_numpy()
+    frame = pred[["local_date", "local_hour"]].copy()
+    frame["z"] = (actual.reindex(frame.index) - pred["point"]).to_numpy() / scale
+    z = frame.pivot_table(
+        index="local_date", columns="local_hour", values="z", aggfunc="mean", dropna=False
+    ).reindex(columns=range(24))
+    dates = z.index
+    values = z.to_numpy()
+    multipliers = np.full((len(dates), len(taus)), np.nan)
+    for i, date in enumerate(dates):
+        hi = dates.searchsorted(date - pd.Timedelta(days=1))  # rows strictly before D-1
+        lo = dates.searchsorted(date - pd.Timedelta(days=1 + window_days))
+        window = values[lo:hi]
+        if (~np.isnan(window)).any(axis=1).sum() >= min_days:
+            multipliers[i] = np.nanquantile(window, taus)
+    row = dates.get_indexer(frame["local_date"])
+    for j, column in enumerate(columns):
+        new = pred["point"].to_numpy() + scale * multipliers[row, j]
+        out[column] = np.where(np.isnan(new), pred[column].to_numpy(), new)
+    return out

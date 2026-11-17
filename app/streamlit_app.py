@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 DATA = Path(__file__).parent / "data"
-SPLIT = "validation"
+SPLIT = "test"
 
 # Display name and colour of each model. Colours belong to the model, not to its position in
 # a chart, so a model keeps its colour whatever else is selected.
@@ -99,7 +99,10 @@ def day_tab(actuals: pd.DataFrame, predictions: pd.DataFrame, meta: dict) -> Non
     first, last = actuals["local_date"].min().date(), actuals["local_date"].max().date()
     left, middle, right = st.columns([1, 1, 2])
     day = left.date_input(
-        "First day", value=pd.Timestamp("2025-01-14").date(), min_value=first, max_value=last
+        "First day",
+        value=min(first + pd.Timedelta(days=74), last),  # mid-January, a winter working day
+        min_value=first,
+        max_value=last,
     )
     n_days = middle.selectbox("Days to show", [1, 3, 7], index=0)
     chosen = right.multiselect("Forecasts", list(MODELS), default=DEFAULT_MODELS, format_func=name)
@@ -174,8 +177,9 @@ def day_tab(actuals: pd.DataFrame, predictions: pd.DataFrame, meta: dict) -> Non
 
     if window["is_masked"].any():
         st.warning(
-            "This period includes the Iberian blackout of 28–29 April 2025. Those two days "
-            "are excluded from every score: the measured values are not ordinary demand."
+            "This period includes a day that is excluded from every score because the "
+            "measured values are not ordinary demand: the Iberian blackout of 28–29 April "
+            "2025, or 11 June 2026, when demand fell far below every forecast."
         )
 
     kinds = ", ".join(window.groupby("local_date")["day_kind"].first().astype(str).unique())
@@ -414,9 +418,8 @@ def main() -> None:
         "the grid operator, Red Eléctrica (REE)."
     )
     st.info(
-        f"These results are for the **validation year**, {meta['start']} to {meta['end']}: "
-        "the year used to choose and tune the models, so their scores are somewhat "
-        "flattering. The final test year has not been scored yet.",
+        f"These results are for the **test year**, {meta['start']} to {meta['end']}, scored once "
+        "after every choice had been fixed on the year before it.",
         icon="ℹ️",
     )
     day, accuracy, calibration, about = st.tabs(
@@ -451,7 +454,8 @@ before, using only what was known at that moment.
 forecasts from Open-Meteo; Spanish public holidays. Demand is shown with the definition REE
 used before December 2025 (without estimated self-consumption) throughout.
 
-**Excluded days.** 28 and 29 April 2025, the Iberian blackout, are left out of all scores.
+**Excluded days.** 28 and 29 April 2025 (the Iberian blackout) and 11 June 2026 (demand about
+7 GW below REE's forecast in the evening, cause not investigated) are left out of all scores.
 
 Dataset version `{meta["dataset_hash"]}`.
 """

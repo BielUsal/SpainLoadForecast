@@ -1,12 +1,12 @@
 VENV := .venv
 PY   := $(VENV)/bin/python
 
-.PHONY: setup lint test spike data eda features train evaluate app-data app
+.PHONY: setup lint test spike data eda features train train-test evaluate evaluate-test app-data app
 
 setup:            ## create the virtual environment and install the package
 	python3 -m venv $(VENV)
 	$(PY) -m pip install --upgrade pip
-	$(PY) -m pip install -e ".[dev,notebook,gbm,bayes,app]"
+	$(PY) -m pip install -e ".[dev,notebook,gbm,bayes,rnn,app]"
 
 lint:
 	$(PY) -m ruff check .
@@ -28,14 +28,20 @@ eda:              ## re-run the EDA notebook in place
 features:         ## M1/M2
 	@echo "not implemented yet (M1/M2)"
 
-train:            ## the single NUTS fit of the Bayesian model (slow; other models train inside evaluate)
-	$(PY) -m loadforecast.models.bayes
+train:            ## the NUTS fit of the Bayesian model for the validation year (about an hour; other models train inside evaluate)
+	$(PY) -m loadforecast.models.bayes --split validation
+
+train-test:       ## the same fit on data up to the test year
+	$(PY) -m loadforecast.models.bayes --split test
 
 evaluate:         ## backtest all models on the validation year and write reports/results
 	$(PY) -m loadforecast.evaluation.run --split validation
 
-app-data:         ## copy the predictions the dashboard needs into app/data (run after evaluate)
-	$(PY) -m loadforecast.viz.app_data --split validation
+evaluate-test:    ## the final scores on the test year (done once, on 2026-11-16; needs train-test)
+	$(PY) -m loadforecast.evaluation.run --split test --final
+
+app-data:         ## copy the predictions the dashboard needs into app/data (run after evaluate-test)
+	$(PY) -m loadforecast.viz.app_data --split test
 
 app:              ## run the dashboard locally
 	$(PY) -m streamlit run app/streamlit_app.py

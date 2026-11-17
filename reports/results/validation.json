@@ -2,7 +2,7 @@
   "split": "validation",
   "start": "2024-11-01",
   "end": "2025-10-31",
-  "dataset_hash": "9de7470fd446c749",
+  "dataset_hash": "fd955f12cde7d5e5",
   "issue_time_local": "10:00",
   "quantiles": [
     0.05,
@@ -18,6 +18,11 @@
       "start": "2025-04-28",
       "end": "2025-04-29",
       "reason": "Iberian blackout"
+    },
+    {
+      "start": "2026-06-11",
+      "end": "2026-06-11",
+      "reason": "demand about 7 GW below REE's forecast in the evening, cause not investigated; masked for now"
     }
   ],
   "models": [
@@ -25,13 +30,15 @@
     "naive_weekly",
     "climatology_adjusted",
     "climatology",
-    "bayes_svi_forecast",
     "bayes_nuts_forecast",
+    "bayes_svi_forecast",
     "bayes_svi_oracle",
     "bayes_nuts_oracle",
     "lgbm_forecast",
     "lgbm_oracle",
+    "rnn_forecast",
+    "rnn_oracle",
     "ree"
   ],
-  "run_at": "2026-11-13T13:45:22+00:00"
+  "run_at": "2026-11-17T02:55:11+00:00"
 }

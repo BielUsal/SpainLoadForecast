@@ -1,0 +1,16 @@
+# GRU encoder-decoder with a quantile head (PyTorch). See DESIGN section 7.4.
+
+train_start: "2021-01-01"
+refit_every_days: 28
+encoder_hours: 168           # one week of history
+decoder_hours: 40            # hours scored after each training origin (issue time to end of target day is 38)
+hidden: 64
+layers: 1
+dropout: 0.1
+epochs: 40
+batch_size: 512
+lr: 0.003
+weight_decay: 0.0001
+clip_norm: 1.0
+seeds: 3                     # networks averaged per forecast
+recalibrate: true            # the pinball-trained ranges are too narrow as they come (about 80% for a nominal 90%)

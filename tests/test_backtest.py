@@ -17,7 +17,7 @@ from loadforecast.models.baselines import (
     SeasonalNaiveDaily,
     SeasonalNaiveWeekly,
 )
-from loadforecast.models.quantiles import add_residual_quantiles
+from loadforecast.models.quantiles import add_residual_quantiles, recalibrate_quantiles
 
 TZ = "Europe/Madrid"
 ISSUE = "10:00"
@@ -182,3 +182,36 @@ def test_residual_quantiles_are_ordered_calibrated_and_causal(table):
     out2 = add_residual_quantiles(pred, tampered, TAUS, window_days=120, min_days=28)
     same_day = out["local_date"] == day
     pd.testing.assert_frame_equal(out.loc[same_day, cols], out2.loc[same_day, cols])
+
+
+def test_recalibration_widens_overconfident_ranges_and_is_causal(table):
+    rng = np.random.default_rng(1)
+    pred = table[["local_date", "local_hour"]].copy()
+    truth_sd = np.where(pred["local_hour"] < 12, 100.0, 300.0)  # the model knows the shape
+    pred["point"] = 1000.0
+    actual = pd.Series(1000.0 + 50.0 + truth_sd * rng.standard_normal(len(pred)), pred.index)
+    z = {0.05: -1.645, 0.25: -0.674, 0.5: 0.0, 0.75: 0.674, 0.95: 1.645}
+    for tau in TAUS:  # ranges half as wide as they should be, and a bias of 50
+        pred[f"q{tau:g}"] = pred["point"] + 0.5 * truth_sd * z[tau]
+
+    out = recalibrate_quantiles(pred, actual, TAUS, window_days=120, min_days=28)
+    columns = [f"q{tau:g}" for tau in TAUS]
+    early = out["local_date"] < out["local_date"].min() + pd.Timedelta(days=28)
+    assert (out.loc[early, columns] == pred.loc[early, columns]).all().all()  # model's own
+    assert (out[[f"model_{c}" for c in columns]].to_numpy() == pred[columns].to_numpy()).all()
+    late = out[~early]
+    assert (np.diff(late[columns].to_numpy(), axis=1) > 0).all()
+    y = actual[late.index]
+    assert abs(((y >= late["q0.05"]) & (y <= late["q0.95"])).mean() - 0.90) < 0.03
+    before = ((y >= pred.loc[late.index, "q0.05"]) & (y <= pred.loc[late.index, "q0.95"])).mean()
+    assert before < 0.65
+    width = late["q0.95"] - late["q0.05"]  # the model's shape survives: afternoons 3x wider
+    ratio = width[late["local_hour"] >= 12].mean() / width[late["local_hour"] < 12].mean()
+    assert ratio == pytest.approx(3.0, rel=1e-3)  # not exact: clock-change days
+
+    day = pd.Timestamp("2023-09-10")
+    tampered = actual.copy()
+    tampered[pred["local_date"] >= day - pd.Timedelta(days=1)] += 1e4
+    out2 = recalibrate_quantiles(pred, tampered, TAUS, window_days=120, min_days=28)
+    same = out["local_date"] <= day
+    assert np.allclose(out.loc[same, columns], out2.loc[same, columns])

@@ -48,6 +48,11 @@ SAME_HOUR_LAGS = (2, 7, 14, 21)  # days back whose same-hour residual enters the
 CARRY_DAYS = max(SAME_HOUR_LAGS)  # the day-ahead correction looks back this many days
 N_CARRY = 3 + len(SAME_HOUR_LAGS)
 K_DAY, K_EXTRA, K_SHAPE, K_YEAR = 5, 2, 3, 3
+# Weekday profiles are sampled as standardised deviations from the common profile (False) or
+# directly (True). The centred form should mix better under NUTS but has not been run with it,
+# and it breaks the posterior-mode fit: the mode moves to a heating threshold of 27 C and the
+# SVI backtest loses 100 MW of MAE (found 2026-11-16). The saved NUTS fit is non-centred.
+CENTRED_PROFILES = False
 KNOTS = np.arange(0.5, 7.0, 0.5)  # trend knots, years since TIME_ORIGIN
 TIME_ORIGIN = pd.Timestamp("2021-01-01")
 EXTRAS = ["holiday_intensity", "bridge_intensity", "christmas", "august", "holy_week"]
@@ -201,14 +206,17 @@ def sample_structure() -> dict:
     k_sd = jnp.concatenate([jnp.array([5.0]), jnp.repeat(3.0 / jnp.arange(1, K_DAY + 1), 2)])
     hinge_loc = jnp.array([jnp.log(0.6), 0, 0, 0, 0])
     hinge_sd = jnp.array([0.7, 0.5, 0.5, 0.5, 0.5])
-    # Centred: the data pin down each weekday's profile, so sampling the profiles themselves
-    # mixes far better than sampling standardised deviations from the common profile.
     profile_mean = numpyro.sample("profile_mean", dist.Normal(0.0, k_sd).to_event(1))
     profile_sd = numpyro.sample("profile_sd", dist.HalfNormal(jnp.ones(11)).to_event(1))
-    return {
-        "profile": numpyro.sample(
+    if CENTRED_PROFILES:
+        profile = numpyro.sample(
             "profile", dist.Normal(jnp.tile(profile_mean, (7, 1)), profile_sd).to_event(2)
-        ),
+        )
+    else:
+        z = numpyro.sample("profile_z", dist.Normal(jnp.zeros((7, 11)), 1.0).to_event(2))
+        profile = profile_mean + profile_sd * z
+    return {
+        "profile": profile,
         "extra": numpyro.sample("extra", dist.Normal(jnp.zeros((5, 5)), 2.0).to_event(2)),
         "yearly": numpyro.sample("yearly", dist.Normal(jnp.zeros(2 * K_YEAR), 2.0).to_event(1)),
         "year_shape": numpyro.sample(

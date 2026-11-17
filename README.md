@@ -2,8 +2,8 @@
 
 **Forecasting Spain's hourly electricity demand one day ahead, with honest uncertainty.**
 
-> 🚧 Work in progress. Preliminary results are [below](#results-at-a-glance) and in the
-> [report](reports/report.md); final test-year results and a live dashboard link will follow.
+> Results are [below](#results-at-a-glance) and in the [report](reports/report.md). A live dashboard link
+> will follow.
 
 ---
 
@@ -64,23 +64,21 @@ trust.
 
 ## Results at a glance
 
-Preliminary, on the **validation year** (1 November 2024 to 31 October 2025), which was also used to
-choose and tune the models, so these scores are somewhat flattering. The final test year has not been
-scored yet. Lower is better, except coverage, which should be 90%.
+On the **test year** (1 November 2025 to 31 October 2026), scored once after every choice had been fixed.
+Lower is better, except coverage, which should be 90%.
 
 | Forecast | Mean error (MW) | Mean error (%) | Probabilistic score, CRPS (MW) | Coverage of the 90% range (%) |
 |---|---:|---:|---:|---:|
-| Same hour last week | 1,438 | 5.30 | 903 | 85.1 |
-| Typical profile | 1,221 | 4.47 | 696 | 85.0 |
-| Bayesian model | 586 | 2.15 | 359 | 84.7 |
-| LightGBM | 538 | 1.99 | 315 | 88.4 |
-| **REE** | **455** | **1.67** | **271** | 88.0 |
+| Same hour last week | 1,393 | 4.99 | 878 | 89.3 |
+| Typical profile | 1,462 | 5.07 | 695 | 88.4 |
+| Bayesian model | 623 | 2.21 | 367 | 89.7 |
+| LightGBM | 553 | 1.96 | 328 | 88.6 |
+| **REE** | **426** | **1.53** | **250** | 90.3 |
 
-- Both models cut the error of the best simple rule by more than half.
-- REE stays ahead, by 83 MW on average against LightGBM. The gap is statistically real but small, and the
-  open model wins on 4 days out of 10, most clearly on unusually sunny days.
-- The uncertainty ranges are close to honest: LightGBM's "90% range" contained the real value 88% of the
-  time.
+- Both models cut the error of the simple rules by more than half.
+- REE stays ahead, by 127 MW on average against LightGBM. The open model wins on 3 days out of 10.
+- The uncertainty ranges are honest: LightGBM's "90% range" contained the real value 89% of the time.
+- The results held up out of sample: on the year used for tuning, LightGBM scored 1.99% and REE 1.67%.
 
 REE publishes no uncertainty range; the one scored here is built from its own past errors. The full story,
 with the failure analysis, is in [`reports/report.md`](reports/report.md).

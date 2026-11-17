@@ -17,7 +17,11 @@ from loadforecast.models.baselines import (
     SeasonalNaiveDaily,
     SeasonalNaiveWeekly,
 )
-from loadforecast.models.quantiles import add_residual_quantiles, recalibrate_quantiles
+from loadforecast.models.quantiles import (
+    add_residual_quantiles,
+    point_from_median,
+    recalibrate_quantiles,
+)
 
 TZ = "Europe/Madrid"
 ISSUE = "10:00"
@@ -215,3 +219,18 @@ def test_recalibration_widens_overconfident_ranges_and_is_causal(table):
     out2 = recalibrate_quantiles(pred, tampered, TAUS, window_days=120, min_days=28)
     same = out["local_date"] <= day
     assert np.allclose(out.loc[same, columns], out2.loc[same, columns])
+
+
+def test_point_from_median_removes_bias(table):
+    rng = np.random.default_rng(2)
+    pred = table[["local_date", "local_hour"]].copy()
+    pred["point"] = 1000.0
+    actual = pd.Series(1000.0 + 80.0 + 100.0 * rng.standard_normal(len(pred)), pred.index)
+    z = {0.05: -1.645, 0.25: -0.674, 0.5: 0.0, 0.75: 0.674, 0.95: 1.645}
+    for tau in TAUS:
+        pred[f"q{tau:g}"] = pred["point"] + 100.0 * z[tau]
+    out = point_from_median(recalibrate_quantiles(pred, actual, TAUS, window_days=120))
+    assert (out["model_point"] == 1000.0).all()
+    late = out["local_date"] >= out["local_date"].min() + pd.Timedelta(days=60)
+    assert (actual[late] - out.loc[late, "point"]).mean() == pytest.approx(0.0, abs=10.0)
+    assert (out["point"] == out["q0.5"]).all()

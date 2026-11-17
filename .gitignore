@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project data: everything under data/ is ignored except its README and CHANGELOG
+/data/*
+!/data/README.md
+!/data/CHANGELOG.md

@@ -23,12 +23,14 @@ MODELS = {
     "ree": ("REE (grid operator)", "#2a78d6"),
     "lgbm_forecast": ("LightGBM", "#eb6834"),
     "bayes_nuts_forecast": ("Bayesian model", "#1baf7a"),
+    "rnn_forecast": ("Neural network (GRU)", "#c8303c"),
     "climatology": ("Baseline: typical profile", "#eda100"),
     "naive_weekly": ("Baseline: same hour last week", "#e87ba4"),
     "lgbm_oracle": ("LightGBM, perfect weather", "#008300"),
     "bayes_nuts_oracle": ("Bayesian model, perfect weather", "#6250d6"),
+    "rnn_oracle": ("Neural network, perfect weather", "#8a6a1f"),
 }
-DEFAULT_MODELS = ["ree", "lgbm_forecast", "bayes_nuts_forecast"]
+DEFAULT_MODELS = ["ree", "lgbm_forecast", "rnn_forecast"]
 ACTUAL_COLOR = "#52514e"
 DAY_KINDS = [
     "Working day",
@@ -446,6 +448,8 @@ before, using only what was known at that moment.
 - **LightGBM:** gradient-boosted trees on recent demand, the calendar and weather forecasts.
 - **Bayesian model:** a statistical model with readable parts: daily and weekly rhythms,
   holidays, heating and cooling as a function of temperature, and the growth of rooftop solar.
+- **Neural network (GRU):** a recurrent network that reads the last week of demand and weather
+  hour by hour and outputs the forecast and its range for every hour of the next day.
 - **Baselines:** the typical profile for the hour, weekday and time of year, and the same hour
   one week earlier. They set the bar that a model has to clear.
 - **Perfect weather variants:** the same models given the weather that was later observed.

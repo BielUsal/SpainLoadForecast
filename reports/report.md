@@ -3,23 +3,26 @@
 *Day-ahead forecasts of Spanish electricity demand from public data, with uncertainty ranges,
 compared against the grid operator's own forecast.*
 
-> **16 November 2026.** Headline results are for the **test year** (1 November 2025 to
-> 31 October 2026), scored once after every choice had been fixed. The year before it (the
+> **17 November 2026.** Headline results are for the **test year** (1 November 2025 to
+> 31 October 2026), scored once after every choice had been fixed (16 November; the neural
+> network on 17 November, with its configuration fixed on the validation year beforehand). The year before it (the
 > validation year) was used to choose and tune the models; where a number or a figure comes from
 > that year, the text says so.
 
 ## The short version
 
-- Using only public data, a standard machine-learning model forecasts tomorrow's hourly demand
-  with an average error of **2.0%** (553 MW on a demand of about 28,000 MW).
-- Red Eléctrica (REE), the grid operator, does better: **1.5%** (426 MW). The gap is real, not
-  noise: 127 MW on average.
-- Simple rules of thumb are far behind, at 5%.
-- The open model beats REE on 3 days out of 10. REE is weakest on unusually sunny days, where
+- Using only public data, a small recurrent neural network forecasts tomorrow's hourly demand
+  with an average error of **1.6%** (457 MW on a demand of about 28,000 MW).
+- Red Eléctrica (REE), the grid operator, is still a little better: **1.5%** (426 MW). The gap is
+  31 MW on average, at the edge of what can be told apart from noise. The network beats REE on
+  43% of days.
+- The standard machine-learning model, LightGBM, scores **2.0%** (553 MW), 127 MW behind REE.
+  Simple rules of thumb are far behind, at 5%.
+- LightGBM beats REE on 3 days out of 10. REE is weakest on unusually sunny days, where
   rooftop solar panels cover more of the midday demand than it expects; there the open model
   matches it.
-- The uncertainty ranges are honest: the model's "90% range" contained the real value 89% of the
-  time.
+- The uncertainty ranges are honest: the network's "90% range" contained the real value 91% of
+  the time, LightGBM's 89%.
 - A second, statistical model is a little less accurate (2.2%) but can be read directly: heating
   starts below 16 °C, air conditioning above 20 °C, and each degree of heat costs almost twice
   as much electricity as each degree of cold.
@@ -80,6 +83,7 @@ evening demand rose by 0.8 GW. The shape of the day is changing year by year.
 | Rules of thumb | "Same hour last week", and the typical profile for that hour, weekday and time of year. They set the bar. |
 | LightGBM | Gradient-boosted decision trees, the standard tool in industry. Fed recent demand, the calendar and weather forecasts. |
 | Bayesian model | A statistical model built from parts with a meaning: daily and weekly rhythm, holidays, heating, cooling, solar. Less flexible, but its parameters can be read. |
+| Neural network | A small recurrent network (GRU) that reads the last week of demand and weather hour by hour and gives the forecast and its range for each hour of the next day. |
 | REE | The operator's published forecast. The benchmark, not a model of this project. |
 
 ## Results
@@ -92,34 +96,37 @@ Test year, 364 days (lower is better, except coverage, which should be 90%):
 | Typical profile | 1,462 | 5.07 | 695 | 88.4 |
 | Bayesian model | 623 | 2.21 | 367 | 89.7 |
 | LightGBM | 553 | 1.96 | 328 | 88.6 |
+| Neural network | 457 | 1.63 | 267 | 90.8 |
 | **REE** | **426** | **1.53** | **250** | 90.3 |
 
 REE publishes no uncertainty range; the one scored here is built from its own past errors.
 11 June 2026, when demand fell about 7 GW below REE's forecast for a reason not investigated, is
 left out for every forecast.
 
-- **Both models cut the error of the rules of thumb by more than half.**
-- **REE stays ahead.** LightGBM is 127 MW behind in daily mean error (between 85 and 174 MW with
-  95% confidence), the Bayesian model 197 MW (153 to 244).
+- **Every model cuts the error of the rules of thumb by more than half.**
+- **REE stays ahead, but the neural network comes close.** In daily mean error the network is
+  31 MW behind (between −1 and 61 MW with 95% confidence), LightGBM 127 MW (85 to 174) and the
+  Bayesian model 197 MW (153 to 244). The network beats LightGBM by 96 MW and on 64% of days.
 - **The weather forecast is not the problem.** Giving LightGBM the weather that was actually
-  observed improves it by only 18 MW. Day-ahead weather forecasts are good enough; the gap to
+  observed improves it by only 18 MW, the network by 10 MW. Day-ahead weather forecasts are good enough; the gap to
   REE comes from somewhere else.
 - **The tuning year was not flattering for the open models, but the gap to REE grew.** On the
   validation year LightGBM scored 538 MW and the Bayesian model 586 MW, against 553 and 623 MW
-  here. REE went from 455 to 426 MW, so the gap went from 83 to 127 MW.
+  here. REE went from 455 to 426 MW, so the gap went from 83 to 127 MW. The network went the
+  other way, from 475 to 457 MW.
 
 ![Errors by hour and month, and calibration, validation year](figures/bayes_validation.png)
 
 ## Where the forecasts fail, and where they win
 
-**They lose most at Christmas.** Over Christmas, LightGBM's error is 3.3% and the Bayesian
-model's 4.5%, against REE's 2.3%. There are only a handful of Christmases in the training data,
+**They lose most at Christmas.** Over Christmas, LightGBM's error is 3.3%, the Bayesian
+model's 4.5% and the network's 2.7%, against REE's 2.3%. There are only a handful of Christmases in the training data,
 and REE has decades of them. This is mostly a *data* limit, not a modelling one. Holy Week is
 less clear: REE was far ahead in 2025 (1.1% against 2.2% and 3.0%) but not in 2026 (2.4% against
-1.9% and 2.8%).
+1.9% and 2.8%; the network 2.0%).
 
 **They lose at night and in the early morning.** Between midnight and 6:00 REE's error is 1.2%,
-LightGBM's 1.6% and the Bayesian model's 1.7%. Night demand is dominated by industry and by the
+LightGBM's 1.6%, the Bayesian model's 1.7% and the network's 1.3%. Night demand is dominated by industry and by the
 overall level, which REE probably tracks with information that is not public.
 
 **They come closest on sunny days.** REE's midday error grows with how sunny the day is for the
@@ -130,17 +137,21 @@ Bayesian model's 3.7%. The Bayesian model does not share the advantage in the te
 midday on the sunniest days).
 
 **A few bad days carry much of the error.** For REE, the worst tenth of days accounts for 21% of
-its total error; for LightGBM, 24%.
+its total error; for LightGBM, 23%; for the network, 20%.
 
 ## Are the uncertainty ranges honest?
 
 Yes. LightGBM's 50, 80 and 90% ranges contained the outcome 50, 79 and 89% of the time. By
-quarter, the 90% range covered between 87% and 93%.
+quarter, the 90% range covered between 87% and 93%. The network's covered 51, 81 and 91%.
 
 The Bayesian model, taken as it comes, is more sure of itself than it should be: its own 90%
 range covered 84%. Its ranges are therefore widened by a factor learned from its past errors
 (about 15% for the 90% range), keeping the model's view of which hours and days are more
 uncertain. After that correction its 50, 80 and 90% ranges covered 48, 78 and 90%.
+
+The network has the same problem, worse: trained to give the ranges directly, its "90% range"
+held only 74% of the time. It gets the same correction, which also removes a tendency to forecast
+too low in the evening (the median of its past errors is used as its forecast).
 
 One approach failed outright and was dropped: training a separate LightGBM for each edge of the
 range gave a "90% range" that held only 68% of the time. Ranges built from the model's own past
@@ -169,9 +180,11 @@ fitted on 2021 to October 2024.
    or a model of those weeks alone.
 2. **Combine the models.** LightGBM and REE fail on different days, so a combination should beat
    both. Using REE's forecast as an input is realistic in industry and has not been tried here.
-3. **Whole-day scenarios.** Errors within a day move together. Models that describe the 24 hours
-   jointly (a recurrent network and a normalizing flow are planned) matter for anyone who has to
-   plan a full day.
+3. **Whole-day scenarios.** Errors within a day move together. A model that describes the 24
+   hours jointly (a normalizing flow on top of the network) matters for anyone who has to plan a
+   full day.
+4. **Train the network on forecast weather.** It is trained on observed weather only, and with
+   weather forecasts it loses 10 MW; on the validation year it lost 39 MW.
 
 ---
 
@@ -215,6 +228,17 @@ range, and each quantile becomes the median plus that width times the empirical 
 standardised errors, pooled over hours. Without this step the test-year coverage is 44.9 / 73.3 / 84.4%;
 with it 48.1 / 78.2 / 89.7% (validation year: 47.9 / 75.4 / 84.7% and 48.4 / 78.2 / 88.0%).
 
+**Neural network (PyTorch).** A one-layer GRU encoder (64 units) over the last 168 hours of
+demand, observed weather and calendar; a GRU decoder over the rest of the issue day and the target
+day, fed with calendar, weather and the demand one week earlier; a head giving the seven
+quantiles per hour, built so they cannot cross. About 30,000 parameters. Trained with the pinball
+loss from a forecast origin at every hour of the history, AdamW, 40 epochs; refitted every 28 days
+on data since 2021; the forecast is the mean of 3 seeds. Its ranges are recalibrated like the
+Bayesian model's (as trained: 34.5 / 73.8% for the 50 / 90% ranges on the test year), and the
+point forecast is the recalibrated median, a choice made on the validation year (MAE 498 to 475 MW
+there; on the test year 494 to 457 MW). Each network trains in about 50 seconds on a GTX 1660
+SUPER; a year's backtest takes about an hour.
+
 **Metrics.** MAE and MAPE on the point forecast. CRPS approximated from seven quantiles (5, 10,
 25, 50, 75, 90, 95%) as twice the mean pinball loss, identical for all models. Coverage is the
 share of hours inside the central interval. Model differences are tested on daily mean absolute
@@ -225,10 +249,13 @@ error with the Diebold–Mariano test (Newey–West variance) and a block-bootst
 | LightGBM − REE | +127 | 85 to 174 | 2e-8 |
 | Bayesian − REE | +197 | 153 to 244 | 3e-18 |
 | Bayesian − LightGBM | +70 | 36 to 105 | 0.0001 |
+| Network − REE | +31 | −1 to 61 | 0.05 |
+| Network − LightGBM | −96 | −129 to −68 | 2e-9 |
 | LightGBM, forecast − observed weather | +18 | 4 to 32 | 0.009 |
 | Bayesian, forecast − observed weather | +9 | −5 to 24 | 0.18 |
 
-On the validation year the first three were +83 (38 to 130), +131 (76 to 184) and +48 (4 to 92).
+On the validation year the first three were +83 (38 to 130), +131 (76 to 184) and +48 (4 to 92),
+and Network − REE +20 (−31 to 71).
 
 **Known limitations.**
 

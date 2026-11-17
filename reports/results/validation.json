@@ -37,8 +37,8 @@
     "lgbm_forecast",
     "lgbm_oracle",
     "rnn_forecast",
-    "rnn_oracle",
-    "ree"
+    "ree",
+    "rnn_oracle"
   ],
-  "run_at": "2026-11-17T02:55:11+00:00"
+  "run_at": "2026-11-17T13:02:41+00:00"
 }

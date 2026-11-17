@@ -164,6 +164,7 @@ class RNNForecaster:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.networks: list[Seq2Quantiles] = []
         self.recalibrate = bool(self.cfg.get("recalibrate", False))
+        self.point_from_median = bool(self.cfg.get("point_from_median", False))
         # Forecast radiation only exists from 2024-01-20.
         self.min_start = "2024-01-21" if weather == "forecast" else None
 

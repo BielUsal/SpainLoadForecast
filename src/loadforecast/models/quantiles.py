@@ -97,3 +97,17 @@ def recalibrate_quantiles(
         new = pred["point"].to_numpy() + scale * multipliers[row, j]
         out[column] = np.where(np.isnan(new), pred[column].to_numpy(), new)
     return out
+
+
+def point_from_median(pred: pd.DataFrame) -> pd.DataFrame:
+    """Use the (recalibrated) median as the point forecast; the old point goes to ``model_point``.
+
+    Run after ``recalibrate_quantiles``: the recalibrated median is the model's point shifted by
+    the median of its own past standardised errors, so this is a causal bias correction.
+    Hours without a median keep their point.
+    """
+    out = pred.copy()
+    out["model_point"] = pred["point"]
+    median = pred[quantile_column(0.5)]
+    out["point"] = median.where(median.notna(), pred["point"])
+    return out

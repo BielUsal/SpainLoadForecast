@@ -6,7 +6,7 @@
 > [`README.md`](../README.md). Keep this file current as decisions change, and record each decision in §16
 > rather than letting the document drift from the code.
 >
-> **Status:** M0 to M4 done. **The test year was scored once on 2026-11-16** (§8.6); nothing may be
+> **Status:** M0 to M4 done; M6 (RNN) done, scored on the test year on 2026-11-17. **The test year was scored once on 2026-11-16** (§8.6); nothing may be
 > tuned against it from now on. M5 is written on those numbers: `reports/report.md`, the Streamlit
 > app in `app/` and the README results table. Left for M5: commit and push, deploy the app, link it
 > in the README. Open points left by M4 are listed at the end of §7.3.
@@ -589,13 +589,24 @@ Framework: **PyTorch** (preferred) or TensorFlow/Keras. PyTorch has the better e
 - **Ranges:** as trained they are far too narrow (34.8 / 61.8 / 74.1% for 50 / 80 / 90%), the
   same failure as LightGBM's quantile regression. Recalibrated like the Bayesian model
   (`recalibrate_quantiles`, out-of-sample history thanks to the refits): 49.5 / 79.6 / 89.7%.
-- **Open: a bias of −171 MW** with forecast weather (−90 MW with observed weather), largest in
-  the evening (−480 MW at 21:00) and in January, June and July. The recalibrated median removes
-  it (bias −13 MW) and scores MAE 475 MW (451 MW with observed weather). Using it as the point
-  forecast is a causal correction but changes what `point` means for this model; not adopted yet.
+- **Bias and the point forecast (decided 2026-11-17, on the validation year, before the test
+  run).** As trained the median has a bias of −171 MW with forecast weather (−90 MW observed),
+  largest in the evening (−480 MW at 21:00) and in January, June and July. The point forecast is
+  now the recalibrated median (`point_from_median`, `point_from_median: true` in
+  `configs/models/rnn.yaml`): a causal correction from the model's own past errors. The raw
+  network median is kept as `model_point`. Validation: `rnn_forecast` MAE 475 MW, bias −13 MW,
+  +20 MW against REE (−31 to +71, p = 0.42); `rnn_oracle` 451 MW. CRPS and coverage are unchanged.
+  The same swap gains only 2 to 3 MW for LightGBM, the Bayesian model and REE, so it is not
+  applied to them (their test scores are frozen anyway).
 - **Forecast weather costs 39 MW** (23 to 58), against 15 MW for LightGBM: the network is trained
   on observed weather only and is more sensitive to the difference.
-- Not scored on the test year.
+- **Test year (scored once, 2026-11-17, configuration as above):** `rnn_forecast` MAE 457 MW,
+  MAPE 1.63%, CRPS 267 MW, coverage 51.2 / 80.8 / 90.8%; `rnn_oracle` 447 MW. Against REE +31 MW
+  (−1 to +61, p = 0.05), beating it on 43% of days; against LightGBM −96 MW (−129 to −68), better
+  on 64% of days. Forecast against observed weather: +10 MW (−5 to +25). The raw network median
+  scores 494 MW with a bias of −238 MW, so the median correction chosen on validation was worth
+  37 MW here. As trained the ranges cover 34.5% (50%) and 73.8% (90%). The three seeds alone
+  (raw median) score 501, 509 and 534 MW.
 
 ### 7.5 Conditional normalizing flow over the 24-hour vector (stretch)
 
@@ -745,6 +756,7 @@ in `reports/results/test.md`. Validation-year values in brackets.
 | `bayes_nuts_forecast` | 623 (586) | 2.21 | 367 | 89.7 | +197 (153 to 244) |
 | `bayes_svi_forecast` | 612 (586) | 2.17 | 360 | 90.5 | +186 (143 to 234) |
 | `lgbm_forecast` | 553 (538) | 1.96 | 328 | 88.6 | +127 (85 to 174) |
+| `rnn_forecast` | 457 (475) | 1.63 | 267 | 90.8 | +31 (−1 to 61) |
 | `ree` | 426 (455) | 1.53 | 250 | 90.3 | |
 
 - The ranking is the one seen on validation. The open models lost 15 to 37 MW; REE gained 29 MW,
@@ -760,6 +772,10 @@ in `reports/results/test.md`. Validation-year values in brackets.
 - Special periods: Christmas 3.30 / 4.51 / 2.29% (LightGBM / Bayesian / REE); Holy Week 1.95 /
   2.83 / 2.42%; 00:00–05:59 1.58 / 1.74 / 1.15%. Midday on the sunniest tenth of days for their
   month: 2.46 / 3.52 / 2.55%, against 2.43 / 2.80 / 1.87% on other days.
+- **RNN (added 2026-11-17, scored once with the configuration fixed on validation, §7.4):** the
+  best open model, 31 MW behind REE (−1 to 61, p = 0.05) and 96 MW ahead of LightGBM. Christmas
+  2.73%, Holy Week 2.04%, 00:00–05:59 1.28%. It narrows the gap to REE on all three. The worst
+  tenth of days carries 20% of its error (LightGBM 23%, REE 20%).
 - The figures in `reports/figures` and the notebooks are still those of the validation year.
 
 ---
@@ -966,6 +982,7 @@ Each milestone ends with something that runs and a commit.
 | 2026-11-16 | 11 June 2026 | Masked for now (training and scoring) | Demand fell about 7 GW below REE's forecast in the evening; cause not investigated. Decided without looking at model errors on that day. The mask changes the dataset hash from `9de7470fd446c749` to `fd955f12cde7d5e5`; the table is otherwise identical, validation scores are unchanged, and the saved NUTS fits were copied to the new hash. |
 | 2026-11-16 | NUTS fit for the test year | Refit on data up to 2025-10-30, kept as a separate file; the validation fit and its scores are unchanged | A fit frozen at 2024-10-30 would forecast the test year one to two years past its training data. |
 | 2026-11-16 | Bayesian quantiles | Recalibrated from the model's own standardised errors over the previous 365 days, pooled over hours | As sampled the 90% range covered 84.7%; recalibrated 88.0% with slightly better CRPS, and the model keeps its own relative widths (§7.3). |
+| 2026-11-17 | RNN point forecast | Recalibrated median, raw network median kept as `model_point`; RNN only | Removes a −171 MW bias, worth 23 MW of MAE on validation; the other models gain 2 to 3 MW. Decided on validation before the RNN's test run. |
 
 ### 16.2 Data size estimate (2026-11-12)
 

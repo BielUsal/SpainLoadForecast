@@ -73,12 +73,16 @@ Lower is better, except coverage, which should be 90%.
 | Typical profile | 1,462 | 5.07 | 695 | 88.4 |
 | Bayesian model | 623 | 2.21 | 367 | 89.7 |
 | LightGBM | 553 | 1.96 | 328 | 88.6 |
+| Neural network (GRU) | 457 | 1.63 | 267 | 90.8 |
 | **REE** | **426** | **1.53** | **250** | 90.3 |
 
-- Both models cut the error of the simple rules by more than half.
-- REE stays ahead, by 127 MW on average against LightGBM. The open model wins on 3 days out of 10.
-- The uncertainty ranges are honest: LightGBM's "90% range" contained the real value 89% of the time.
-- The results held up out of sample: on the year used for tuning, LightGBM scored 1.99% and REE 1.67%.
+- Every model cuts the error of the simple rules by more than half.
+- The neural network comes within 31 MW of REE on average (between −1 and 61 MW with 95%
+  confidence) and beats it on 43% of days. LightGBM is 127 MW behind.
+- The uncertainty ranges are honest: the network's "90% range" contained the real value 91% of the
+  time, LightGBM's 89%.
+- The results held up out of sample: on the year used for tuning, the network scored 1.75%,
+  LightGBM 1.99% and REE 1.67%.
 
 REE publishes no uncertainty range; the one scored here is built from its own past errors. The full story,
 with the failure analysis, is in [`reports/report.md`](reports/report.md).

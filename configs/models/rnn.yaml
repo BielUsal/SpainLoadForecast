@@ -14,3 +14,4 @@ weight_decay: 0.0001
 clip_norm: 1.0
 seeds: 3                     # networks averaged per forecast
 recalibrate: true            # the pinball-trained ranges are too narrow as they come (about 80% for a nominal 90%)
+point_from_median: true      # point forecast = recalibrated median; removes the evening bias (DESIGN 7.4, decided on validation)

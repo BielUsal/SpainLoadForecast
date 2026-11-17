@@ -33,10 +33,12 @@ APP_MODELS = [
     "ree",
     "lgbm_forecast",
     "bayes_nuts_forecast",
+    "rnn_forecast",
     "climatology",
     "naive_weekly",
     "lgbm_oracle",
     "bayes_nuts_oracle",
+    "rnn_oracle",
 ]
 
 

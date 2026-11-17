@@ -32,6 +32,8 @@
     "lgbm_forecast",
     "lgbm_oracle",
     "naive_weekly",
-    "ree"
+    "ree",
+    "rnn_forecast",
+    "rnn_oracle"
   ]
 }

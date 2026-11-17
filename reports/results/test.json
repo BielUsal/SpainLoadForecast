@@ -36,7 +36,9 @@
     "bayes_svi_oracle",
     "lgbm_forecast",
     "lgbm_oracle",
+    "rnn_forecast",
+    "rnn_oracle",
     "ree"
   ],
-  "run_at": "2026-11-17T00:35:43+00:00"
+  "run_at": "2026-11-17T14:15:22+00:00"
 }

@@ -29,7 +29,11 @@ from loadforecast.models.baselines import (
     SeasonalNaiveDaily,
     SeasonalNaiveWeekly,
 )
-from loadforecast.models.quantiles import add_residual_quantiles, recalibrate_quantiles
+from loadforecast.models.quantiles import (
+    add_residual_quantiles,
+    point_from_median,
+    recalibrate_quantiles,
+)
 
 PREDICTIONS_DIR = DATA_DIR / "predictions"
 RESULTS_DIR = ROOT / "reports" / "results"
@@ -110,6 +114,8 @@ def run_models(split: str, groups: list[str], only: str | None = None) -> None:
             pred = add_residual_quantiles(pred, table["demand_mw"], taus)
         elif recalibrate:
             pred = recalibrate_quantiles(pred, table["demand_mw"], taus)
+        if getattr(model, "point_from_median", False):
+            pred = point_from_median(pred)
         pred = pred[pred["local_date"] >= start]
         pred.attrs = {}
         pred.to_parquet(out_dir / f"{model.name}.parquet")

@@ -6,7 +6,8 @@
 > [`README.md`](../README.md). Keep this file current as decisions change, and record each decision in §16
 > rather than letting the document drift from the code.
 >
-> **Status:** M0 to M4 done; M6 (RNN) done, scored on the test year on 2026-11-17. **The test year was scored once on 2026-11-16** (§8.6); nothing may be
+> **Status:** M0 to M6 done; M7 (joint scenarios) done as a post-processor on the RNN, scored on
+> the test year on 2026-11-17; the end-to-end flow is next. **The test year was scored once on 2026-11-16** (§8.6); nothing may be
 > tuned against it from now on. M5 is done: `reports/report.md`, the README results table and the
 > Streamlit app in `app/`, deployed at https://spainloadforecast-gabrieldandrade.streamlit.app/ (2026-11-17) from `main`. Open points left by M4 are listed at the end of §7.3.
 > Read §10 on the December 2025 definition change before working with the data.
@@ -652,6 +653,77 @@ $$
 - A downstream sanity check: the distribution of the **daily peak** and of **daily energy**
   $\sum_j y_j$ derived from the scenarios. Marginal-only models get these wrong.
 
+**As built (2026-11-17): a post-processor on the RNN, `models/joint.py`, `configs/models/joint.yaml`.**
+An end-to-end version (flow head trained with the RNN encoder) is the planned next step.
+
+- **Data.** The RNN's out-of-sample errors: a backtest over 2022-01 to 2024-10
+  (`run --history`, `data/predictions/history`, never scored) plus the scored years, forecast-
+  weather runs where they exist (from 2024-01-21) and observed-weather runs before, with a flag
+  in the context. For target day D only days up to D-2 are used; refit every 28 days. About
+  1,030 days before the validation year. Clock-change days are left out.
+- **Marginals.** The RNN's seven recalibrated quantiles, made continuous by linear interpolation
+  in normal-score space, extended linearly beyond 5% and 95%.
+- **Models.** `independent` (hours drawn on their own); `copula` (Gaussian copula, correlation
+  of the hours' normal scores over the past 365 days); `flow` (zuko NSF over
+  $3.29\,(y-\hat y)/w$, $w$ the RNN's raw 5-95% width; context: weekday, holiday and season
+  flags, day of year, mean temperature, mean log width, weather source; early stopping on the
+  latest 15% of days).
+- **Flow inflation.** As trained the flow is too confident (hourly 90% range covers 86%). After
+  each refit one factor is chosen so that its 90% ranges cover 90% of the held-out hours, and
+  the scenarios are widened around each hour's median by it.
+- **Choices on the validation year** (energy score, variogram score; copula 2,001 / 23,445):
+  first flow (3 transforms, 64 units) 2,014 / 22,886; over normal scores 2,010 / 23,547; small
+  2,005 / 22,743; big (5 transforms, 128 units) 1,979 / 22,336; 3 seeds 1,990 / 22,407; big and
+  3 seeds 1,965 / 22,175 (hourly coverage 86.1%); the same with inflation 1,974 / 22,258
+  (89.4%), **adopted**. The copula on all past days instead of 365: no change.
+- **Validation year (frozen configuration, rerun with the final code):**
+  `reports/results/validation_joint.md`. Energy score: flow 1,974, copula 1,997, independent
+  2,063. The copula beats independent hours clearly (−66, −76 to −59); the flow beats the
+  copula on every score except the CRPS of daily energy, but not significantly (energy −23,
+  −81 to +39; variogram −1,106, −2,847 to +841). The clearest effect is on the daily energy:
+  with independent hours its "90% range" covers 36% of days, the copula 89%, the flow 90%.
+- **Test year (scored once, 2026-11-17):** see §8.6.
+
+**End-to-end version (planned 2026-11-17, before any run): `models/rnn_flow.py`,
+`configs/models/rnn_flow.yaml`.** The RNN of §7.4 with a second head: a zuko NSF over the 24
+hours of the target window, $r = 3.29\,(y-m)/w$, with $m$ and $w$ the network's own median and
+5-95% width (detached, so the flow learns the shape and dependence of the errors relative to
+the quantile head). Its context is a learned projection of the decoder's outputs over those 24
+hours, so the likelihood trains the encoder and decoder too. Loss: pinball + $\lambda$ times
+the flow's negative log-likelihood per hour, $\lambda = 1$. Training as §7.4: every hour of the
+history is an origin, and the flow window is hours 14 to 37 after it (the target day when the
+origin is 10:00). This is the "sliding window" of the data-volume point above: about 24 times
+more vectors than one per day. Same hyperparameters as the RNN, 3 seeds, refit every 28 days,
+forecast weather only.
+
+- **Calibration.** Trained in sample, the flow will be too confident, as the RNN's raw
+  quantiles are. Three variants, compared on the validation year: `e2e_raw` (scenarios as
+  sampled); `e2e_inflate` (one factor per day that makes the model's own past scenarios,
+  days D-2 and earlier over 365 days, cover 90% of hours, applied around each hour's median);
+  `e2e_marginals` (the flow's ranks only, mapped through the network's recalibrated quantiles
+  as the copula does: the flow supplies the dependence).
+- **Rule.** The variant with the lowest validation energy score is the end-to-end model. At
+  most one further change (to $\lambda$) if all three are clearly worse than the post-processor
+  flow. Then frozen, recorded here, and the test year scored once. The network's hourly scores
+  are also compared with the RNN's, to see whether the joint training costs marginal accuracy.
+- **Validation, $\lambda = 1$ (kept as `*_w1`).** The joint training costs hourly accuracy: MAE
+  504 against the RNN's 475, CRPS 297 against 278. Energy score / variogram: `e2e_inflate`
+  2,116 / 28,060, `e2e_raw` 2,119 / 27,494, `e2e_marginals` 2,169 / 31,248; all worse than
+  independent hours on the RNN (2,063). Raw coverage 83% of hours, 73% of daily energies (the
+  inflation factor is 1.2 to 1.3); errors of neighbouring hours correlate 0.72 in its
+  scenarios against 0.79 (flow) and 0.92 (copula). The likelihood is learned in sample, where
+  errors are smaller and less tied across the day than out of sample. All three clearly
+  worse, so the one allowed change: $\lambda = 0.1$.
+- **Validation, $\lambda = 0.1$ (adopted, frozen 2026-11-17 before the test run).** Hourly
+  accuracy is back to the RNN's (MAE 477, CRPS 279). `e2e_marginals` 2,017 / 24,826 (hourly /
+  daily-energy / peak coverage 89.7 / 80.6 / 87.3%), `e2e_inflate` 2,060 / 24,340, `e2e_raw`
+  2,084 / 23,684. The end-to-end model is therefore `e2e_marginals` with $\lambda = 0.1$. It
+  beats independent hours (−46, −103 to +11) but not the copula (+20, −33 to +81) or the
+  post-processor flow (1,974). Its scenarios tie neighbouring hours less (0.70) and its
+  daily-energy range is too narrow. The in-sample likelihood does not see the day-level
+  errors that make out-of-sample errors move together; the post-processor learns from those
+  errors directly.
+
 ### 7.6 The professional benchmark: REE's own forecast
 
 REE publishes its day-ahead demand forecast as ESIOS indicator **1775** (verified, §3.1). It is a
@@ -775,7 +847,19 @@ in `reports/results/test.md`. Validation-year values in brackets.
   best open model, 31 MW behind REE (−1 to 61, p = 0.05) and 96 MW ahead of LightGBM. Christmas
   2.73%, Holy Week 2.04%, 00:00–05:59 1.28%. It narrows the gap to REE on all three. The worst
   tenth of days carries 20% of its error (LightGBM 23%, REE 20%).
-- The figures in `reports/figures` and the notebooks are still those of the validation year.
+- **Joint scenarios (added 2026-11-17, §7.5, configuration frozen on validation):**
+  `reports/results/test_joint.md`, 362 days.
+
+  | Model | Energy score | Variogram | CRPS hour (MW) | CRPS peak (MW) | CRPS energy (GWh) | 90% coverage hour / energy / peak |
+  |---|---:|---:|---:|---:|---:|---|
+  | `flow` | 1,931 | 23,245 | 324 | 355 | 5.56 | 90.1 / 92.3 / 89.2 |
+  | `copula` | 1,949 | 23,823 | 328 | 370 | 5.54 | 89.5 / 92.0 / 87.6 |
+  | `independent` | 1,998 | 26,852 | 327 | 359 | 6.49 | 89.7 / 37.8 / 79.8 |
+
+  Copula minus independent, energy score −49 (−56 to −44). Flow minus copula −18 (−65 to +28,
+  p = 0.44), variogram −577 (−1,974 to +750, p = 0.40): the ranking of validation, again not
+  significant. `reports/figures/joint_scenarios.png` is from this year.
+- The other figures in `reports/figures` and the notebooks are still those of the validation year.
 
 ---
 
@@ -982,6 +1066,8 @@ Each milestone ends with something that runs and a commit.
 | 2026-11-16 | NUTS fit for the test year | Refit on data up to 2025-10-30, kept as a separate file; the validation fit and its scores are unchanged | A fit frozen at 2024-10-30 would forecast the test year one to two years past its training data. |
 | 2026-11-16 | Bayesian quantiles | Recalibrated from the model's own standardised errors over the previous 365 days, pooled over hours | As sampled the 90% range covered 84.7%; recalibrated 88.0% with slightly better CRPS, and the model keeps its own relative widths (§7.3). |
 | 2026-11-17 | RNN point forecast | Recalibrated median, raw network median kept as `model_point`; RNN only | Removes a −171 MW bias, worth 23 MW of MAE on validation; the other models gain 2 to 3 MW. Decided on validation before the RNN's test run. |
+| 2026-11-17 | End-to-end flow | RNN + flow head, $\lambda = 0.1$, flow ranks through the recalibrated marginals (`e2e_marginals`); frozen before the test run | Best of three calibrations on validation after one change of $\lambda$ (1 cost hourly accuracy); worse than the post-processor flow and the copula, better than independent hours (§7.5). |
+| 2026-11-17 | Joint models | Post-processors on the RNN: Gaussian copula and a conditional spline flow (5 transforms, 128 units, 3 seeds, inflated to 90% on held-out days); frozen before the test run | The flow beats the copula on validation but not significantly; inflation fixes its 86% coverage at a small cost in energy score (§7.5). |
 
 ### 16.2 Data size estimate (2026-11-12)
 

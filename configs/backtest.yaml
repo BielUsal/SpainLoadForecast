@@ -9,6 +9,10 @@ splits:
   validation: {start: "2024-11-01", end: "2025-10-31"}
   test:       {start: "2025-11-01", end: "2026-10-31"}
 
+# Out-of-sample forecasts over the training years, never scored: the joint models (DESIGN 7.5)
+# learn the dependence between hours from these errors. Starts after a year of training data.
+residual_history: {start: "2022-01-01", end: "2024-10-31"}
+
 # Days removed from training and from scoring. The blackout range is provisional; EDA sets it.
 masked_days:
   - {start: "2025-04-28", end: "2025-04-29", reason: "Iberian blackout"}

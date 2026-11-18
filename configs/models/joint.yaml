@@ -1,0 +1,32 @@
+# Joint (whole-day) forecasts on top of the RNN's marginals. See DESIGN section 7.5.
+# Frozen 2026-11-17 on the validation year, before the test run.
+
+base_model: rnn                # predictions read from data/predictions/<split>/<base>_{forecast,oracle}
+refit_every_days: 28
+min_train_days: 300            # days of past errors needed before a joint model is fitted
+n_samples: 1000                # scenarios per day for scoring
+n_saved: 200                   # scenarios per day kept on disk (plots, the app)
+
+copula:
+  window_days: 365             # correlation of the normal scores over the last year
+
+flow:
+  target: residual             # residual: (y - point) / width; score: normal scores of the RNN marginals
+  transforms: 5
+  hidden: [128, 128]
+  bins: 8
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 128
+  max_epochs: 400
+  patience: 30                 # epochs without improvement on the held-out last 15% of days
+  holdout: 0.15
+  seeds: 3                     # flows averaged (samples drawn equally from each)
+  inflate: true                # widen to 90% coverage on the held-out days (DESIGN 7.5)
+
+# End-to-end scenarios from the RNN with a flow head (models/rnn_flow.py), DESIGN 7.5.
+# Added after the freeze above; the three calibrations are compared on validation.
+e2e:
+  base_model: rnn_flow
+  window_days: 365             # past days whose coverage sets e2e_inflate's factor
+  min_days: 28                 # fewer past days: factor 1

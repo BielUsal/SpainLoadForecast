@@ -66,8 +66,15 @@ class Seq2Quantiles(nn.Module):
     def forward(self, past: torch.Tensor, future: torch.Tensor) -> torch.Tensor:
         """``past`` (B, L, C+1) ends with demand; ``future`` (B, F, C+1) ends with the demand
         one week earlier. Returns ordered quantiles (B, F, taus) in scaled units."""
+        return self.quantiles(self.decode(past, future), future)
+
+    def decode(self, past: torch.Tensor, future: torch.Tensor) -> torch.Tensor:
+        """Decoder outputs (B, F, hidden)."""
         _, state = self.encoder(past)
         out, _ = self.decoder(future, state)
+        return out
+
+    def quantiles(self, out: torch.Tensor, future: torch.Tensor) -> torch.Tensor:
         raw = self.head(self.dropout(out))
         # The median is an offset from the same hour last week; the other quantiles are the
         # median minus or plus cumulated positive steps, so they cannot cross.

@@ -36,9 +36,11 @@
     "bayes_nuts_oracle",
     "lgbm_forecast",
     "lgbm_oracle",
+    "rnn_flow_w1_forecast",
+    "rnn_flow_forecast",
     "rnn_forecast",
     "ree",
     "rnn_oracle"
   ],
-  "run_at": "2026-11-17T13:02:41+00:00"
+  "run_at": "2026-11-18T01:43:55+00:00"
 }

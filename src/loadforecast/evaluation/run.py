@@ -53,7 +53,7 @@ def baseline_models(table: pd.DataFrame) -> list[tuple[object, int]]:
     ]
 
 
-MODEL_GROUPS = ["baselines", "lgbm", "bayes", "rnn"]
+MODEL_GROUPS = ["baselines", "lgbm", "bayes", "rnn", "rnn_flow"]
 
 
 def build_models(
@@ -74,17 +74,28 @@ def build_models(
         from loadforecast.models.rnn import rnn_models
 
         models += rnn_models(cfg["quantiles"])
+    if "rnn_flow" in groups:
+        from loadforecast.models.rnn_flow import rnn_flow_models
+
+        models += rnn_flow_models(cfg["quantiles"])
     return models
 
 
-def run_models(split: str, groups: list[str], only: str | None = None) -> None:
-    """Backtest the chosen model groups and save their predictions for the split."""
+def run_models(
+    split: str, groups: list[str], only: str | None = None, period: dict | None = None
+) -> None:
+    """Backtest the chosen model groups and save their predictions for the split.
+
+    ``period`` ({start, end}) replaces the split's dates; ``split`` then only names the output
+    folder. Used for the ``history`` run, which is never scored.
+    """
     data_cfg, cfg = load_config("data"), load_config("backtest")
     raw = pd.read_parquet(PROCESSED_DIR / "hourly.parquet")
     meta = json.loads((PROCESSED_DIR / "hourly.meta.json").read_text())
     table = prepare_table(raw)
     taus = cfg["quantiles"]
-    start, end = cfg["splits"][split]["start"], cfg["splits"][split]["end"]
+    dates = period or cfg["splits"][split]
+    start, end = dates["start"], dates["end"]
     first_possible = pd.Timestamp(data_cfg["period"]["start"]) + pd.Timedelta(days=35)
     warm_start = max(pd.Timestamp(start) - pd.Timedelta(days=WARMUP_DAYS), first_possible)
 
@@ -119,6 +130,8 @@ def run_models(split: str, groups: list[str], only: str | None = None) -> None:
         pred = pred[pred["local_date"] >= start]
         pred.attrs = {}
         pred.to_parquet(out_dir / f"{model.name}.parquet")
+        if hasattr(model, "save_scenarios"):  # end-to-end scenarios, warm-up days included
+            model.save_scenarios(DATA_DIR / "scenarios" / split / "raw")
 
 
 def score_split(split: str) -> pd.DataFrame:
@@ -201,6 +214,12 @@ def main() -> None:
     )
     parser.add_argument("--only", default=None, help="keep models whose name contains this text")
     parser.add_argument("--final", action="store_true", help="required to score the test split")
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="backtest over the residual_history period of backtest.yaml into "
+        "data/predictions/history, without scoring (training data for the flow)",
+    )
     args = parser.parse_args()
     if args.split == "test" and not args.final:
         parser.error("the test split is scored once, at the end: pass --final to confirm")
@@ -208,6 +227,10 @@ def main() -> None:
     unknown = set(groups) - set(MODEL_GROUPS)
     if unknown:
         parser.error(f"unknown model groups: {sorted(unknown)}")
+    if args.history:
+        period = load_config("backtest")["residual_history"]
+        run_models("history", groups, args.only, period)
+        return
     run_models(args.split, groups, args.only)
     results = score_split(args.split)
     pd.set_option("display.width", 220, "display.max_columns", 30)

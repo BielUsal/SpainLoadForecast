@@ -1,12 +1,12 @@
 VENV := .venv
 PY   := $(VENV)/bin/python
 
-.PHONY: setup lint test spike data eda features train train-test evaluate evaluate-test app-data app
+.PHONY: setup lint test spike data eda features train train-test evaluate evaluate-test history joint joint-test e2e e2e-test app-data app
 
 setup:            ## create the virtual environment and install the package
 	python3 -m venv $(VENV)
 	$(PY) -m pip install --upgrade pip
-	$(PY) -m pip install -e ".[dev,notebook,gbm,bayes,rnn,app]"
+	$(PY) -m pip install -e ".[dev,notebook,gbm,bayes,rnn,flow,app]"
 
 lint:
 	$(PY) -m ruff check .
@@ -39,6 +39,23 @@ evaluate:         ## backtest all models on the validation year and write report
 
 evaluate-test:    ## the final scores on the test year (done once, on 2026-11-16; needs train-test)
 	$(PY) -m loadforecast.evaluation.run --split test --final
+
+history:          ## RNN forecasts over 2022-2024, never scored: training errors for the joint models
+	$(PY) -m loadforecast.evaluation.run --history --models rnn
+
+joint:            ## whole-day scenarios (copula, flow) on the validation year (needs history and evaluate)
+	$(PY) -m loadforecast.evaluation.run_joint --split validation
+
+joint-test:       ## the same on the test year, once (done 2026-11-17)
+	$(PY) -m loadforecast.evaluation.run_joint --split test --final
+
+e2e:              ## end-to-end RNN + flow on the validation year (about 4 h on the GPU), then its scenarios
+	$(PY) -m loadforecast.evaluation.run --split validation --models rnn_flow
+	$(PY) -m loadforecast.evaluation.run_joint --split validation --e2e
+
+e2e-test:         ## the same on the test year, once
+	$(PY) -m loadforecast.evaluation.run --split test --final --models rnn_flow
+	$(PY) -m loadforecast.evaluation.run_joint --split test --final --e2e
 
 app-data:         ## copy the predictions the dashboard needs into app/data (run after evaluate-test)
 	$(PY) -m loadforecast.viz.app_data --split test

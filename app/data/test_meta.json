@@ -35,5 +35,10 @@
     "ree",
     "rnn_forecast",
     "rnn_oracle"
+  ],
+  "joint_models": [
+    "independent",
+    "copula",
+    "flow"
   ]
 }

@@ -1,0 +1,26 @@
+# The RNN with a flow head trained with it (end-to-end scenarios). See DESIGN section 7.5.
+# Everything outside ``flow`` is as in configs/models/rnn.yaml.
+
+train_start: "2021-01-01"
+refit_every_days: 28
+encoder_hours: 168
+decoder_hours: 40
+hidden: 64
+layers: 1
+dropout: 0.1
+epochs: 40
+batch_size: 512
+lr: 0.003
+weight_decay: 0.0001
+clip_norm: 1.0
+seeds: 3
+recalibrate: true
+point_from_median: true
+
+flow:
+  context: 32                  # learned projection of the decoder outputs over the 24 hours
+  transforms: 5
+  hidden: [128, 128]
+  bins: 8
+  weight: 0.1                  # loss = pinball + weight * flow NLL per hour; 1.0 tried first (DESIGN 7.5)
+  n_samples: 1000              # scenarios per day, kept for run_joint

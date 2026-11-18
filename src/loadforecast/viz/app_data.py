@@ -7,6 +7,8 @@ what the app needs for one split into ``app/data/`` (a few MB, committed with th
     app/data/<split>_actuals.parquet       one row per hour: demand, weather, kind of day
     app/data/<split>_scores.csv            the score table of reports/results
     app/data/<split>_meta.json             period, dataset hash, masked days
+    app/data/<split>_scenarios.npz         whole-day scenarios of the joint models (DESIGN 7.5)
+    app/data/<split>_joint_scores.csv      their score table
 
 Usage:
     python -m loadforecast.viz.app_data --split validation
@@ -27,6 +29,9 @@ from loadforecast.models.quantiles import quantile_column
 
 APP_DATA_DIR = ROOT / "app" / "data"
 RESULTS_DIR = ROOT / "reports" / "results"
+SCENARIOS_DIR = DATA_DIR / "scenarios"
+JOINT_MODELS = ["independent", "copula", "flow"]
+N_APP_SCENARIOS = 50  # per day and model, for the plots; ranges use every saved scenario
 # Models shown in the app. The others (SVI variant, daily naive, adjusted climatology) add
 # nothing a visitor would want to compare.
 APP_MODELS = [
@@ -101,8 +106,44 @@ def build(split: str) -> dict:
         "masked_days": cfg.get("masked_days", []),
         "models": [str(m) for m in predictions["model"].cat.categories],
     }
+    info["joint_models"] = build_scenarios(split)
     (APP_DATA_DIR / f"{split}_meta.json").write_text(json.dumps(info, indent=2))
     return info
+
+
+def build_scenarios(split: str) -> list[str]:
+    """Copy a thinned set of whole-day scenarios, and the 90% ranges of every saved one.
+
+    The ranges (each hour, daily energy, daily peak) are computed here from all saved
+    scenarios, so the coverage the app shows matches the report; the plots need fewer.
+    """
+    loaded = {}
+    for name in JOINT_MODELS:
+        path = SCENARIOS_DIR / split / f"{name}.npz"
+        if path.exists():
+            z = np.load(path)
+            rows = pd.Series(range(len(z["dates"])), index=pd.DatetimeIndex(z["dates"]))
+            loaded[name] = (rows, z["samples"])
+    if not loaded:
+        print(f"skipping scenarios: none saved for {split}")
+        return []
+    dates = pd.DatetimeIndex(sorted(set.intersection(*(set(r.index) for r, _ in loaded.values()))))
+    levels = [0.05, 0.5, 0.95]
+    out = {"dates": dates.to_numpy(), "models": np.array(list(loaded))}
+    keep, energy, peak, hour = [], [], [], []
+    for ix, samples in loaded.values():
+        x = samples[ix.loc[dates].to_numpy()]  # (days, saved, 24)
+        keep.append(np.clip(np.round(x[:, :N_APP_SCENARIOS]), 0, 65535).astype("uint16"))
+        energy.append(np.quantile(x.sum(2) / 1e3, levels, axis=1).T)  # GWh
+        peak.append(np.quantile(x.max(2), levels, axis=1).T)
+        hour.append(np.quantile(x, [0.05, 0.95], axis=1).transpose(1, 0, 2))
+    out["samples"] = np.stack(keep)  # (models, days, scenarios, 24), MW
+    out["energy_q"] = np.stack(energy).astype("float32")  # (models, days, 3)
+    out["peak_q"] = np.stack(peak).astype("float32")
+    out["hour_q"] = np.stack(hour).astype("float32")  # (models, days, 2, 24)
+    np.savez_compressed(APP_DATA_DIR / f"{split}_scenarios.npz", **out)
+    shutil.copyfile(RESULTS_DIR / f"{split}_joint.csv", APP_DATA_DIR / f"{split}_joint_scores.csv")
+    return list(loaded)
 
 
 def main() -> None:

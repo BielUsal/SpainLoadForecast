@@ -58,7 +58,8 @@ trust.
 ## What you'll be able to see
 
 - An **[interactive dashboard](https://spainloadforecast-gabrieldandrade.streamlit.app/)**: pick any day and compare what actually happened with each model's forecast
-  and its uncertainty range, alongside REE's own forecast.
+  and its uncertainty range, alongside REE's own forecast, and see whole-day scenarios with
+  honest ranges for the day's total energy and peak.
 - A short **report** explaining the results in plain language.
 - All the **code**, so every number can be reproduced.
 
@@ -73,16 +74,19 @@ Lower is better, except coverage, which should be 90%.
 | Typical profile | 1,462 | 5.07 | 695 | 88.4 |
 | Bayesian model | 623 | 2.21 | 367 | 89.7 |
 | LightGBM | 553 | 1.96 | 328 | 88.6 |
-| Neural network (GRU) | 457 | 1.63 | 267 | 90.8 |
+| Recurrent neural network (RNN) | 457 | 1.63 | 267 | 90.8 |
 | **REE** | **426** | **1.53** | **250** | 90.3 |
 
 - Every model cuts the error of the simple rules by more than half.
-- The neural network comes within 31 MW of REE on average (between −1 and 61 MW with 95%
+- The RNN comes within 31 MW of REE on average (between −1 and 61 MW with 95%
   confidence) and beats it on 43% of days. LightGBM is 127 MW behind.
-- The uncertainty ranges are honest: the network's "90% range" contained the real value 91% of the
+- The uncertainty ranges are honest: the RNN's "90% range" contained the real value 91% of the
   time, LightGBM's 89%.
-- The results held up out of sample: on the year used for tuning, the network scored 1.75%,
+- The results held up out of sample: on the year used for tuning, the RNN scored 1.75%,
   LightGBM 1.99% and REE 1.67%.
+- Whole-day scenarios need the hours tied together: drawn independently, the "90% range" for a
+  day's total energy held only 38% of the time; with a Gaussian copula or a neural spline flow,
+  92%. The flow is slightly better than the copula, but not clearly.
 
 REE publishes no uncertainty range; the one scored here is built from its own past errors. The full story,
 with the failure analysis, is in [`reports/report.md`](reports/report.md).

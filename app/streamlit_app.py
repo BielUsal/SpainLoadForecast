@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -23,12 +24,12 @@ MODELS = {
     "ree": ("REE (grid operator)", "#2a78d6"),
     "lgbm_forecast": ("LightGBM", "#eb6834"),
     "bayes_nuts_forecast": ("Bayesian model", "#1baf7a"),
-    "rnn_forecast": ("Neural network (GRU)", "#c8303c"),
+    "rnn_forecast": ("Recurrent neural network (RNN)", "#c8303c"),
     "climatology": ("Baseline: typical profile", "#eda100"),
     "naive_weekly": ("Baseline: same hour last week", "#e87ba4"),
     "lgbm_oracle": ("LightGBM, perfect weather", "#008300"),
     "bayes_nuts_oracle": ("Bayesian model, perfect weather", "#6250d6"),
-    "rnn_oracle": ("Neural network, perfect weather", "#8a6a1f"),
+    "rnn_oracle": ("RNN, perfect weather", "#8a6a1f"),
 }
 DEFAULT_MODELS = ["ree", "lgbm_forecast", "rnn_forecast"]
 ACTUAL_COLOR = "#52514e"
@@ -41,6 +42,13 @@ DAY_KINDS = [
     "Christmas period",
     "Holy Week",
 ]
+# Whole-day models (the report's figure uses the same colours). They are a separate family
+# from the forecasts above: all three share the RNN's hourly ranges.
+JOINT = {
+    "independent": ("Independent hours", "#2a78d6"),
+    "copula": ("Gaussian copula", "#eb6834"),
+    "flow": ("Normalizing flow", "#1baf7a"),
+}
 TEMP_BINS = [-50, 5, 10, 15, 20, 25, 60]
 TEMP_LABELS = ["< 5", "5–10", "10–15", "15–20", "20–25", "> 25"]
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -407,6 +415,246 @@ def calibration_tab(meta: dict) -> None:
     )
 
 
+# --- tab 4: whole-day scenarios ----------------------------------------------------------
+
+
+@st.cache_data
+def load_scenarios() -> dict | None:
+    path = DATA / f"{SPLIT}_scenarios.npz"
+    if not path.exists():
+        return None
+    z = np.load(path)
+    out = {k: z[k] for k in z.files}
+    out["dates"] = pd.DatetimeIndex(out["dates"])
+    out["models"] = [str(m) for m in out["models"]]
+    out["scores"] = pd.read_csv(DATA / f"{SPLIT}_joint_scores.csv", index_col=0)
+    return out
+
+
+def day_matrix(actuals: pd.DataFrame, dates: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray]:
+    """Demand as (days, 24) for ``dates``, and which days count in the scores."""
+    wide = actuals.pivot_table(index="local_date", columns="local_hour", values="demand_mw")
+    masked = actuals.groupby("local_date")["is_masked"].any()
+    wide = wide.reindex(dates)
+    ok = wide.notna().all(axis=1).to_numpy() & ~masked.reindex(dates, fill_value=True).to_numpy()
+    return wide.to_numpy(), ok
+
+
+def scenarios_tab(actuals: pd.DataFrame, predictions: pd.DataFrame) -> None:
+    sc = load_scenarios()
+    if sc is None:
+        st.info("No scenarios in this build of the app.")
+        return
+    models = [m for m in JOINT if m in sc["models"]]
+    index = {m: sc["models"].index(m) for m in models}
+    st.markdown(
+        "The other tabs judge each hour on its own. But some questions are about the whole "
+        "day: how much energy will Spain use tomorrow, or how high will the evening peak be? "
+        "For those one needs **scenarios**: complete 24-hour paths that could happen. All three "
+        "models below start from the RNN's forecast and its range for each hour, so they agree "
+        "hour by hour. They differ in how the hours move together:"
+    )
+    st.markdown(
+        "- **Independent hours** draws each hour on its own. Errors in one hour say nothing "
+        "about the next, which is not how demand behaves.\n"
+        "- **Gaussian copula** learns from the past year how the RNN's errors in different hours "
+        "go together, and draws them jointly.\n"
+        "- **Normalizing flow** is a small neural network that learns that joint behaviour "
+        "too, and can let it change with the season, the kind of day and the weather."
+    )
+
+    first, last = sc["dates"].min().date(), sc["dates"].max().date()
+    left, right = st.columns([1, 2])
+    day = left.date_input(
+        "Day",
+        value=min(first + pd.Timedelta(days=74), last),
+        min_value=first,
+        max_value=last,
+        key="scenario_day",
+    )
+    model = right.radio(
+        "Scenarios from",
+        models,
+        index=models.index("flow") if "flow" in models else 0,
+        format_func=lambda m: JOINT[m][0],
+        horizontal=True,
+    )
+    day = pd.Timestamp(day)
+    if day not in sc["dates"]:
+        st.info("No scenarios for this day: the clock changes on it, so it does not have 24 hours.")
+        return
+    k = sc["dates"].get_loc(day)
+    y, ok = day_matrix(actuals, sc["dates"][[k]])
+    y, ok = y[0], bool(ok[0])
+    hours = np.arange(24)
+
+    plot, side = st.columns([2, 1])
+    fig = go.Figure()
+    x = sc["samples"][index[model], k].astype(float)
+    for j in range(min(30, len(x))):
+        fig.add_trace(
+            go.Scatter(
+                x=hours,
+                y=x[j],
+                mode="lines",
+                line=dict(color=rgba(JOINT[model][1], 0.4), width=1),
+                hoverinfo="skip",
+                showlegend=j == 0,
+                name=f"{JOINT[model][0]}: 30 scenarios",
+            )
+        )
+    rows = actuals[actuals["local_date"] == day].index
+    rnn = predictions[predictions["model"] == "rnn_forecast"].reindex(rows)
+    fig.add_trace(
+        go.Scatter(
+            x=actuals.loc[rows, "local_hour"],
+            y=rnn["point"],
+            mode="lines",
+            name="RNN forecast",
+            line=dict(color=color("rnn_forecast"), width=2, dash="dash"),
+            hovertemplate="%{y:,.0f} MW",
+        )
+    )
+    if np.isfinite(y).all():
+        fig.add_trace(
+            go.Scatter(
+                x=hours,
+                y=y,
+                mode="lines",
+                name="Actual demand",
+                line=dict(color=ACTUAL_COLOR, width=3),
+                hovertemplate="%{y:,.0f} MW",
+            )
+        )
+    base_layout(fig, "Demand (MW)", height=420)
+    fig.update_layout(xaxis_title="Hour (local time)")
+    plot.markdown(f"**{day:%A %-d %B %Y}**")
+    plot.plotly_chart(fig, width="stretch")
+
+    fig = go.Figure()
+    actual_energy = float(np.sum(y)) / 1e3 if np.isfinite(y).all() else None
+    for m in models:
+        lo, mid, hi = sc["energy_q"][index[m], k]
+        fig.add_trace(
+            go.Scatter(
+                x=[lo, hi],
+                y=[JOINT[m][0]] * 2,
+                mode="lines",
+                line=dict(color=JOINT[m][1], width=10),
+                showlegend=False,
+                hovertemplate=f"90% range {lo:,.0f} to {hi:,.0f} GWh<extra></extra>",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[mid],
+                y=[JOINT[m][0]],
+                mode="markers",
+                marker=dict(color="white", size=9, line=dict(color=JOINT[m][1], width=2)),
+                showlegend=False,
+                hovertemplate=f"median {mid:,.0f} GWh<extra></extra>",
+            )
+        )
+    if actual_energy is not None:
+        fig.add_vline(x=actual_energy, line=dict(color=ACTUAL_COLOR, width=2, dash="dot"))
+        fig.add_annotation(
+            x=actual_energy,
+            y=1.02,
+            yref="paper",
+            text="actual",
+            showarrow=False,
+            font=dict(color=ACTUAL_COLOR),
+        )
+    fig.update_layout(
+        height=260,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="Energy used over the day (GWh)",
+        yaxis=dict(autorange="reversed"),
+    )
+    side.markdown("**The day's total energy: 90% range**")
+    side.plotly_chart(fig, width="stretch")
+    side.caption(
+        "Independent hours lets the errors of different hours cancel out, so its range for "
+        "the day's total is far too narrow. The other two know that a day which starts above "
+        "the forecast tends to stay above it."
+    )
+    if not ok:
+        st.warning("This day is excluded from the scores (see About).")
+
+    st.subheader("Over the whole year")
+    y_all, ok_all = day_matrix(actuals, sc["dates"])
+    y_all = y_all[ok_all]
+    coverage = {}
+    for m in models:
+        i = index[m]
+        hq, eq, pq = sc["hour_q"][i][ok_all], sc["energy_q"][i][ok_all], sc["peak_q"][i][ok_all]
+        energy, peak = y_all.sum(1) / 1e3, y_all.max(1)
+        coverage[m] = {
+            "Each hour": ((y_all >= hq[:, 0]) & (y_all <= hq[:, 1])).mean(),
+            "Daily energy": ((energy >= eq[:, 0]) & (energy <= eq[:, 2])).mean(),
+            "Daily peak": ((peak >= pq[:, 0]) & (peak <= pq[:, 2])).mean(),
+        }
+    left, right = st.columns([1, 1])
+    fig = go.Figure()
+    fig.add_hline(y=90, line=dict(color=ACTUAL_COLOR, width=1, dash="dot"))
+    for m in models:
+        values = [100 * v for v in coverage[m].values()]
+        fig.add_trace(
+            go.Bar(
+                x=list(coverage[m]),
+                y=values,
+                name=JOINT[m][0],
+                marker_color=JOINT[m][1],
+                text=[f"{v:.0f}" for v in values],
+                textposition="outside",
+                hovertemplate="%{y:.1f}%",
+            )
+        )
+    base_layout(fig, "Outcomes inside the 90% range (%)", height=360)
+    fig.update_layout(bargap=0.25, bargroupgap=0.08, hovermode="closest")
+    fig.update_yaxes(range=[0, 105])
+    left.markdown("**Are the whole-day ranges honest?**")
+    left.plotly_chart(fig, width="stretch")
+    left.caption(
+        "The dotted line is the target. Each hour on its own is fine for all three; the "
+        "day's total and its peak are only right when the hours move together."
+    )
+
+    scores = sc["scores"].reindex(models)
+    shown = pd.DataFrame(
+        {
+            "Model": [JOINT[m][0] for m in models],
+            "Energy score (MW)": scores["energy"].to_numpy(),
+            "Peak, CRPS (MW)": scores["crps_peak"].to_numpy(),
+            "Daily energy, CRPS (GWh)": scores["crps_energy_gwh"].to_numpy(),
+            "Change vs independent": [
+                "" if pd.isna(v) else f"{v:+.0f} ({ci})"
+                for v, ci in zip(
+                    scores["energy_minus_independent"],
+                    scores["energy_minus_independent_ci"],
+                    strict=True,
+                )
+            ],
+        }
+    ).set_index("Model")
+    right.markdown("**Scores over the year**")
+    right.dataframe(
+        shown,
+        column_config={
+            "Energy score (MW)": st.column_config.NumberColumn(format="%.0f"),
+            "Peak, CRPS (MW)": st.column_config.NumberColumn(format="%.0f"),
+            "Daily energy, CRPS (GWh)": st.column_config.NumberColumn(format="%.2f"),
+        },
+        width="stretch",
+    )
+    right.caption(
+        "Lower is better. The energy score judges whole 24-hour paths at once. The last "
+        "column is the change in energy score against independent hours, with a 95% "
+        f"interval, over {int(scores['days'].iloc[0])} days. The flow and the copula are "
+        "close: the flow is ahead on most scores, but not by more than chance would allow."
+    )
+
+
 # --- page ---------------------------------------------------------------------------------
 
 
@@ -424,8 +672,14 @@ def main() -> None:
         "after every choice had been fixed on the year before it.",
         icon="ℹ️",
     )
-    day, accuracy, calibration, about = st.tabs(
-        ["Explore a day", "Accuracy over the year", "Are the ranges honest?", "About"]
+    day, accuracy, calibration, scenarios, about = st.tabs(
+        [
+            "Explore a day",
+            "Accuracy over the year",
+            "Are the ranges honest?",
+            "Whole-day scenarios",
+            "About",
+        ]
     )
     with day:
         day_tab(actuals, predictions, meta)
@@ -433,6 +687,8 @@ def main() -> None:
         accuracy_tab(scores)
     with calibration:
         calibration_tab(meta)
+    with scenarios:
+        scenarios_tab(actuals, predictions)
     with about:
         st.markdown(
             f"""
@@ -448,11 +704,15 @@ before, using only what was known at that moment.
 - **LightGBM:** gradient-boosted trees on recent demand, the calendar and weather forecasts.
 - **Bayesian model:** a statistical model with readable parts: daily and weekly rhythms,
   holidays, heating and cooling as a function of temperature, and the growth of rooftop solar.
-- **Neural network (GRU):** a recurrent network that reads the last week of demand and weather
-  hour by hour and outputs the forecast and its range for every hour of the next day.
+- **Recurrent neural network (RNN):** a small network (a GRU) that reads the last week of
+  demand and weather hour by hour and outputs the forecast and its range for every hour of the
+  next day.
 - **Baselines:** the typical profile for the hour, weekday and time of year, and the same hour
   one week earlier. They set the bar that a model has to clear.
 - **Perfect weather variants:** the same models given the weather that was later observed.
+- **Whole-day scenarios:** 24-hour paths built on the RNN's forecasts, so that totals over
+  the day (energy, peak) get honest ranges too. Independent hours, a Gaussian copula and a
+  normalizing flow differ only in how they tie the hours together.
 
 **Data.** Demand and REE's forecast from REE's ESIOS service; weather and archived weather
 forecasts from Open-Meteo; Spanish public holidays. Demand is shown with the definition REE
